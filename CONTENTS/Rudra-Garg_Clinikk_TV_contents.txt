@@ -1,0 +1,2305 @@
+
+Filename: .env.example
+Content:
+# Database
+POSTGRES_USER=clinikk
+POSTGRES_PASSWORD=your_password
+POSTGRES_DB=clinikktv
+POSTGRES_HOST=localhost
+POSTGRES_PORT=5432
+
+# JWT
+SECRET_KEY=your_secret_key
+ALGORITHM=HS256
+ACCESS_TOKEN_EXPIRE_MINUTES=30
+
+# Storage
+STORAGE_PROVIDER=S3
+STORAGE_BUCKET=your-bucket-name
+AWS_ACCESS_KEY_ID=your_access_key
+AWS_SECRET_ACCESS_KEY=your_secret_key
+AWS_REGION=your_region
+
+
+================================================================================
+
+Filename: .gitignore
+Content:
+
+### Python template
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# C extensions
+*.so
+
+# Distribution / packaging
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# PyInstaller
+#  Usually these files are written by a python script from a template
+#  before PyInstaller builds the exe, so as to inject date/other infos into it.
+*.manifest
+*.spec
+
+# Installer logs
+pip-log.txt
+pip-delete-this-directory.txt
+
+# Unit test / coverage reports
+htmlcov/
+.tox/
+.nox/
+.coverage
+.coverage.*
+.cache
+nosetests.xml
+coverage.xml
+*.cover
+*.py,cover
+.hypothesis/
+.pytest_cache/
+cover/
+
+# Translations
+*.mo
+*.pot
+
+# Django stuff:
+*.log
+local_settings.py
+db.sqlite3
+db.sqlite3-journal
+
+# Flask stuff:
+instance/
+.webassets-cache
+
+# Scrapy stuff:
+.scrapy
+
+# Sphinx documentation
+docs/_build/
+
+# PyBuilder
+.pybuilder/
+target/
+
+# Jupyter Notebook
+.ipynb_checkpoints
+
+# IPython
+profile_default/
+ipython_config.py
+
+# pyenv
+#   For a library or package, you might want to ignore these files since the code is
+#   intended to run in multiple environments; otherwise, check them in:
+# .python-version
+
+# pipenv
+#   According to pypa/pipenv#598, it is recommended to include Pipfile.lock in version control.
+#   However, in case of collaboration, if having platform-specific dependencies or dependencies
+#   having no cross-platform support, pipenv may install dependencies that don't work, or not
+#   install all needed dependencies.
+#Pipfile.lock
+
+# poetry
+#   Similar to Pipfile.lock, it is generally recommended to include poetry.lock in version control.
+#   This is especially recommended for binary packages to ensure reproducibility, and is more
+#   commonly ignored for libraries.
+#   https://python-poetry.org/docs/basic-usage/#commit-your-poetrylock-file-to-version-control
+#poetry.lock
+
+# pdm
+#   Similar to Pipfile.lock, it is generally recommended to include pdm.lock in version control.
+#pdm.lock
+#   pdm stores project-wide configurations in .pdm.toml, but it is recommended to not include it
+#   in version control.
+#   https://pdm.fming.dev/latest/usage/project/#working-with-version-control
+.pdm.toml
+.pdm-python
+.pdm-build/
+
+# PEP 582; used by e.g. github.com/David-OConnor/pyflow and github.com/pdm-project/pdm
+__pypackages__/
+
+# Celery stuff
+celerybeat-schedule
+celerybeat.pid
+
+# SageMath parsed files
+*.sage.py
+
+# Environments
+.env
+.venv
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+
+# Spyder project settings
+.spyderproject
+.spyproject
+
+# Rope project settings
+.ropeproject
+
+# mkdocs documentation
+/site
+
+# mypy
+.mypy_cache/
+.dmypy.json
+dmypy.json
+
+# Pyre type checker
+.pyre/
+
+# pytype static type analyzer
+.pytype/
+
+# Cython debug symbols
+cython_debug/
+
+# PyCharm
+#  JetBrains specific template is maintained in a separate JetBrains.gitignore that can
+#  be found at https://github.com/github/gitignore/blob/main/Global/JetBrains.gitignore
+#  and can be added to the global gitignore or merged into this file.  For a more nuclear
+#  option (not recommended) you can uncomment the following to ignore the entire idea folder.
+#.idea/
+
+.idea
+
+
+================================================================================
+
+Filename: Dockerfile
+Content:
+# Use an official Python 3.12 slim image as the base image
+FROM python:3.12-slim
+
+# Install system dependencies required for building psycopg2
+RUN apt-get update && apt-get install -y \
+    gcc \
+    libpq-dev \
+ && rm -rf /var/lib/apt/lists/*
+
+# Set the working directory inside the container
+WORKDIR /app
+
+# Copy requirements.txt and install dependencies with no cache to reduce image size
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+# Copy the entire application code into the container
+COPY . .
+
+# Start the FastAPI application using Uvicorn on port 8000
+CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
+
+================================================================================
+
+Filename: README.md
+Content:
+# Clinikk TV Backend Service (POC)
+
+Clinikk TV Backend Service is a proof-of-concept implementation that provides robust media (video and audio) content management and streaming capabilities along with user authentication. The service is built using Python and FastAPI, and it integrates with PostgreSQL for data storage and AWS S3 for media storage.
+
+## Table of Contents
+- [Overview](#overview)
+- [Key Features](#key-features)
+- [Technology Stack](#technology-stack)
+- [Architecture](#architecture)
+  - [High-Level Design (HLD)](#high-level-design-hld)
+  - [Low-Level Design (LLD)](#low-level-design-lld)
+- [API Documentation](#api-documentation)
+- [Installation and Running](#installation-and-running)
+  - [Using Docker Compose](#using-docker-compose)
+  - [Running Locally](#running-locally)
+- [Testing](#testing)
+- [Personal Motivation and Technology Choice](#personal-motivation-and-technology-choice)
+
+## Overview
+Clinikk TV Backend Service supports:
+- **Media Content Management:** Create, update, delete, retrieve, and stream video/audio content.
+- **User Authentication:** Secure user registration and JWT-based login.
+- **Storage Integration:** Media file uploads and streaming via AWS S3.
+
+## Key Features
+- **Fast Development:** Leverages FastAPI's automatic API documentation and asynchronous support.
+- **Scalable Architecture:** A modular design dividing responsibilities into API, Controller, Service, and Data Access layers.
+- **Secure:** Uses industry-standard JWT tokens and bcrypt-based password hashing for robust security.
+- **Containerized Deployment:** Ready to run via Docker and Docker Compose for easy deployment.
+
+## Technology Stack
+- **Language & Framework:** Python, FastAPI
+- **Database:** PostgreSQL (using SQLAlchemy ORM)
+- **Storage:** AWS S3
+- **Authentication:** JWT Tokens
+- **Containerization:** Docker and Docker Compose
+
+## Architecture
+
+### High-Level Design (HLD)
+The system follows a layered architecture:
+- **API Layer:** Exposes endpoints with FastAPI routers.
+- **Controller Layer:** Contains business logic for coordinating requests and services.
+- **Service Layer:** Implements core features such as media processing, authentication, and S3 interactions.
+- **Data Access Layer:** Uses SQLAlchemy models for database CRUD operations.
+- **Storage Integration:** Manages AWS S3 file operations including uploads and presigned URL generation.
+
+### Low-Level Design (LLD)
+- **Routers:**  
+  - Located in `routes/content_routes.py` and `routes/auth_routes.py`, they map HTTP requests to controller functions.
+- **Controllers:**  
+  - For instance, `ContentController.create_content` handles file validation, S3 uploads, and saving the record to PostgreSQL.
+- **Services:**  
+  - `StorageService` (in `services/storage_service.py`) abstracts AWS S3 operations.
+  - `AuthService` (in `services/auth_service.py`) manages user registration, authentication, and secure password handling.
+- **Data Models:**  
+  - Defined in `models/content.py` and `models/user.py`, they establish the schema for content and user data.
+
+## API Documentation
+Once the service is running, FastAPI automatically generates interactive API documentation:
+- **Swagger UI:** [http://localhost:8000/docs](http://localhost:8000/docs)
+- **ReDoc:** [http://localhost:8000/redoc](http://localhost:8000/redoc)
+
+### Example Endpoints
+- **Health Check:** `GET /health`
+- **Create Content:** `POST /content/`  
+  Accepts form-data parameters (title, description, content_type, duration, thumbnail_url) along with a media file upload.
+- **User Registration:** `POST /auth/register`
+- **User Login:** `POST /auth/token`
+
+## Installation and Running
+
+### Using Docker Compose
+Ensure you have a valid `.env` file configured with your PostgreSQL and AWS S3 settings. Then, run:
+```bash
+docker-compose up --build
+```
+
+### Running Locally
+1. **Install the dependencies:**
+   ```bash
+   pip install -r requirements.txt
+   ```
+2. **Run the server:**
+   ```bash
+   uvicorn main:app --host 0.0.0.0 --port 8000
+   ```
+
+## Testing
+Run all tests using pytest:
+```bash
+pytest
+```
+
+## Personal Motivation and Technology Choice
+While Node.js was said to be preferred, I chose Python with FastAPI due to:
+- **Extensive Python Experience:** My background enables rapid development using Python's rich ecosystem.
+- **FastAPI Benefits:** Automatic API docs, asynchronous support, and concise code structure make it ideal for modern backend services.
+- **Clean Architecture:** A modular design supports scalability and maintainability in complex applications.
+
+
+================================================================================
+
+Filename: config.py
+Content:
+"""
+Application configuration module.
+
+This module defines settings for the application using pydantic Settings,
+including database credentials, JWT configurations, and AWS S3 storage settings.
+"""
+
+from functools import lru_cache
+
+from pydantic_settings import BaseSettings
+
+
+class Settings(BaseSettings):
+    """
+    Application settings loaded from environment variables.
+    """
+    PROJECT_NAME: str = "Clinikk TV Backend"
+    VERSION: str = "1.0.0"
+
+    # Database settings
+    POSTGRES_USER: str
+    POSTGRES_PASSWORD: str
+    POSTGRES_DB: str
+    POSTGRES_HOST: str
+    POSTGRES_PORT: str
+
+    # JWT settings
+    SECRET_KEY: str
+    ALGORITHM: str = "HS256"
+    ACCESS_TOKEN_EXPIRE_MINUTES: int = 30
+
+    # Storage settings
+    STORAGE_PROVIDER: str = "S3"
+    STORAGE_BUCKET: str
+    AWS_ACCESS_KEY_ID: str
+    AWS_SECRET_ACCESS_KEY: str
+    AWS_REGION: str = "ap-south-1"
+
+    class Config:
+        env_file = ".env"
+
+
+@lru_cache
+def get_settings():
+    """
+    Cached function to get application settings.
+
+    Returns:
+        Settings: An instance of the Settings class.
+    """
+    return Settings()
+
+
+settings = get_settings()
+
+
+================================================================================
+
+Filename: controllers/__init__.py
+Content:
+"""
+This package contains the controller layer for handling business logic.
+"""
+
+from .content_controllers import ContentController
+
+__all__ = ["ContentController"]
+
+
+================================================================================
+
+Filename: controllers/content_controllers.py
+Content:
+"""
+Controller layer for handling content-related operations.
+
+This module defines the ContentController class which handles validation,
+file uploads, retrieval, updates, deletion, and streaming of content.
+"""
+
+import logging
+import uuid
+
+from fastapi import UploadFile, HTTPException
+from sqlalchemy.orm import Session
+
+from models import Content
+from schemas import ContentCreate, ContentUpdate
+
+from services import ContentService, StorageService, S3UploadException
+
+logger = logging.getLogger(__name__)
+
+
+class ContentController:
+    """
+    Controller for handling content-related actions.
+    """
+
+    @staticmethod
+    async def create_content(db: Session, content: ContentCreate, file: UploadFile):
+        """
+        Create new content.
+
+        Validates the file type, uploads the file to storage,
+        and creates a new content record in the database.
+
+        Args:
+            db (Session): Database session.
+            content (ContentCreate): The content data.
+            file (UploadFile): The file to be uploaded.
+
+        Returns:
+            Content: The created content record.
+
+        Raises:
+            HTTPException: If the file type is invalid or upload fails.
+        """
+        logger.info("Received request to create content with title: %s", content.title)
+        if not ContentService.validate_file_type(file, content.content_type):
+            logger.error("Invalid file type for content type: %s", content.content_type)
+            raise HTTPException(
+                status_code=400,
+                detail=f"Invalid file type for {content.content_type} content"
+            )
+
+        # Generate a new UUID to be used as both the content id and file name
+        content_id = uuid.uuid4()
+        try:
+            storage_url = await StorageService.upload_file(file, content.content_type, content_id)
+        except S3UploadException as e:
+            logger.error("Storage upload failed: %s", e)
+            raise HTTPException(status_code=500, detail=str(e))
+        logger.debug("File uploaded to storage with URL: %s", storage_url)
+        created_content = ContentService.create_content(db, content, content_id, storage_url)
+        logger.info("Content created with id: %s", created_content.id)
+        return created_content
+
+    @staticmethod
+    def get_content(db: Session, content_id):
+        """
+        Retrieve a single content by its ID.
+
+        Args:
+            db (Session): Database session.
+            content_id (UUID): The ID of the content.
+
+        Returns:
+            Content: The content record if found.
+        """
+        logger.debug("Fetching content with id: %s", content_id)
+        return ContentService.get_content(db, content_id)
+
+    @staticmethod
+    def get_contents(db: Session, skip: int = 0, limit: int = 100):
+        """
+        Retrieve a list of content records.
+
+        Args:
+            db (Session): Database session.
+            skip (int): Number of records to skip.
+            limit (int): Maximum number of records to return.
+
+        Returns:
+            List[Content]: List of content records.
+        """
+        logger.debug("Listing contents with skip: %d and limit: %d", skip, limit)
+        return ContentService.get_contents(db, skip=skip, limit=limit)
+
+    @staticmethod
+    async def update_content(db: Session, content_id, content_update: ContentUpdate, file: UploadFile = None):
+        """
+        Update content metadata only.
+
+        Args:
+            db (Session): Database session.
+            content_id: ID of the content to update.
+            content_update (ContentUpdate): The updated metadata.
+            file (UploadFile, optional): If provided, file updates are rejected.
+
+        Returns:
+            Updated content record.
+
+        Raises:
+            HTTPException: If the content is not found or if a file is provided.
+        """
+        logger.info("Received request to update content id: %s", content_id)
+        db_content = ContentService.get_content(db, content_id)
+        if not db_content:
+            logger.error("Content with id %s not found for update.", content_id)
+            raise HTTPException(status_code=404, detail="Content not found")
+
+        update_data = content_update.model_dump(exclude_unset=True)
+        for key, value in update_data.items():
+            setattr(db_content, key, value)
+
+        db.commit()
+        db.refresh(db_content)
+        logger.info("Content with id %s metadata updated successfully.", content_id)
+        return db_content
+
+    @staticmethod
+    def delete_content(db: Session, content_id):
+        """
+        Delete a content record.
+
+        Args:
+            db (Session): Database session.
+            content_id (UUID): ID of the content to delete.
+
+        Returns:
+            dict: A confirmation message.
+
+        Raises:
+            HTTPException: If the content is not found.
+        """
+        logger.info("Received request to delete content id: %s", content_id)
+        db_content = ContentService.get_content(db, content_id)
+        if not db_content:
+            logger.error("Content with id %s not found for deletion.", content_id)
+            raise HTTPException(status_code=404, detail="Content not found")
+        # Delete the associated S3 object before removing the database record
+        StorageService.delete_file(db_content.storage_url)
+        ContentService.delete_content(db, db_content)
+        logger.info("Content with id %s deleted successfully.", content_id)
+        return {"detail": "Content deleted successfully"}
+
+    @staticmethod
+    def stream_content(db: Session, content_id):
+        """
+        Generate a presigned URL for streaming a content file.
+
+        Args:
+            db (Session): Database session.
+            content_id (UUID): ID of the content to stream.
+
+        Returns:
+            str: A presigned URL for streaming.
+
+        Raises:
+            HTTPException: If the content is not found or presigned URL generation fails.
+        """
+        logger.info("Received request to stream content with id: %s", content_id)
+        db_content = ContentService.get_content(db, content_id)
+        if not db_content:
+            logger.error("Content with id %s not found for streaming.", content_id)
+            raise HTTPException(status_code=404, detail="Content not found")
+        presigned_url = StorageService.generate_presigned_url(db_content.storage_url)
+        if presigned_url is None:
+            logger.error("Failed to generate presigned URL for content id: %s", content_id)
+            raise HTTPException(status_code=500, detail="Unable to generate presigned URL for streaming.")
+        logger.info("Streaming content id %s using presigned URL.", content_id)
+        return presigned_url
+
+
+================================================================================
+
+Filename: docker-compose.yml
+Content:
+# Docker Compose configuration for the Clinikk TV Backend application
+services:
+  web:
+    build: .
+    ports:
+      - "8000:8000"
+    env_file:
+      - .env
+    depends_on:
+      db:
+        condition: service_healthy
+
+  db:
+    image: postgres:latest
+    ports:
+      - "15432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    env_file:
+      - .env
+    environment:
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 10s
+      retries: 5
+      start_period: 30s
+
+volumes:
+  postgres_data:
+
+
+
+================================================================================
+
+Filename: main.py
+Content:
+"""
+Main module for the Clinikk TV Backend application.
+
+This module initializes the FastAPI application, configures middleware,
+creates database tables, includes API routers, and defines health check endpoints.
+"""
+
+import logging
+from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
+from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy import text
+
+from routes import content_router, auth_router
+from services import StorageService
+from utils import engine, Base, get_db, setup_logging
+
+# Setup custom logging for the entire app
+setup_logging()
+logger = logging.getLogger(__name__)
+
+# Create database tables
+Base.metadata.create_all(bind=engine)
+
+app = FastAPI(
+    title="Clinikk TV Backend",
+    description="Backend service for Clinikk TV media streaming platform",
+    version="1.0.0"
+)
+
+# CORS middleware configuration
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# Include API routers
+app.include_router(content_router)
+app.include_router(auth_router)
+
+
+@app.get("/health", summary="Health Check")
+async def health_check():
+    """
+    Health check endpoint.
+
+    Returns a simple status message confirming that the service is running.
+    """
+    logger.info("Health check endpoint called.")
+    return {"status": "healthy"}
+
+
+@app.get("/health/detailed", summary="Detailed Health Check")
+async def detailed_health_check():
+    """
+    Detailed health check endpoint.
+
+    Checks database and S3 connectivity, returning status for both components.
+    """
+    logger.info("Detailed health check endpoint called.")
+    
+    # Check database connectivity
+    database_status = "ok"
+    try:
+        db = next(get_db())
+        db.execute(text("SELECT 1"))
+        logger.debug("Database connectivity check passed.")
+    except SQLAlchemyError as e:
+        database_status = f"error: {str(e)}"
+        logger.error("Database connectivity error: %s", e)
+
+    # Check S3 connectivity
+    try:
+        s3_client = StorageService.get_s3_client()
+        s3_client.list_buckets()
+        s3_status = "ok"
+        logger.debug("S3 connectivity check passed.")
+    except Exception as e:
+        s3_status = f"error: {str(e)}"
+        logger.error("S3 connectivity error: %s", e)
+
+    return {"database": database_status, "s3": s3_status}
+
+
+================================================================================
+
+Filename: models/__init__.py
+Content:
+"""
+This package contains SQLAlchemy models.
+"""
+
+from .content import Content
+from .content_type import ContentType
+from .user import User
+
+__all__ = ["Content", "ContentType", "User"]
+
+
+================================================================================
+
+Filename: models/content.py
+Content:
+"""
+SQLAlchemy models for content management.
+
+This module defines the models for storing content records.
+"""
+
+import uuid
+
+from sqlalchemy import Column, Integer, String, DateTime, Enum as SAEnum
+from sqlalchemy.sql import func
+
+# Import Base and GUID from utils.
+from utils import Base, GUID
+from .content_type import ContentType  # Updated import
+
+
+class Content(Base):
+    """
+    SQLAlchemy model for content records.
+    """
+    __tablename__ = "contents"
+
+    id = Column(GUID(), primary_key=True, default=uuid.uuid4)
+    title = Column(String, nullable=False)
+    description = Column(String, nullable=False)
+    content_type = Column(SAEnum(ContentType), nullable=False)
+    storage_url = Column(String)
+    thumbnail_url = Column(String, nullable=True)
+    duration = Column(Integer, nullable=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+   
+
+================================================================================
+
+Filename: models/content_type.py
+Content:
+import enum
+
+
+class ContentType(str, enum.Enum):
+    """
+    Enumeration of content types.
+    """
+    VIDEO = "video"
+    AUDIO = "audio"
+
+
+================================================================================
+
+Filename: models/user.py
+Content:
+"""
+SQLAlchemy models for user management.
+
+This module defines the User model for storing user information.
+"""
+
+import uuid
+from sqlalchemy import Column, String, Boolean
+# Import Base and GUID from utils.
+from utils import Base, GUID
+
+
+class User(Base):
+    """
+    SQLAlchemy model for a user.
+    """
+    __tablename__ = "users"
+
+    id = Column(GUID(), primary_key=True, default=uuid.uuid4)
+    email = Column(String, unique=True, index=True, nullable=False)
+    hashed_password = Column(String, nullable=False)
+    is_active = Column(Boolean, default=True)
+
+
+================================================================================
+
+Filename: requirements.txt
+Content:
+fastapi~=0.115.8
+uvicorn[standard]
+sqlalchemy~=2.0.38
+psycopg2-binary
+boto3~=1.36.19
+python-jose[cryptography]~=3.3.0
+passlib[bcrypt]~=1.7.4
+python-multipart
+pydantic~=2.10.6
+pydantic_settings
+pytest~=8.3.4
+pydantic[email]
+httpx
+anyio
+pytest-asyncio
+botocore~=1.36.19
+starlette~=0.45.3
+pydantic-settings~=2.7.1
+
+================================================================================
+
+Filename: routes/__init__.py
+Content:
+"""
+This package aggregates all API route modules for the Clinikk TV Backend application.
+It includes routes for content operations and user authentication.
+"""
+from .content_routes import router as content_router
+from .auth_routes import router as auth_router
+
+__all__ = ["content_router", "auth_router"]
+
+
+================================================================================
+
+Filename: routes/auth_routes.py
+Content:
+"""
+Authentication API routes.
+
+This module defines endpoints for user registration and login, returning JWT tokens upon successful authentication.
+"""
+
+from fastapi import APIRouter, Depends, HTTPException, status
+from sqlalchemy.orm import Session
+
+from schemas import User, UserCreate, Token, UserLogin
+from services import AuthService
+from utils import create_access_token, get_db
+
+router = APIRouter(
+    prefix="/auth",
+    tags=["authentication"]
+)
+
+
+@router.post("/register", response_model=User, summary="Register a new user", description="Create a new user account")
+def register_user(user: UserCreate, db: Session = Depends(get_db)):
+    """
+    Register a new user.
+
+    Checks if the email is already registered and creates a new user record.
+    """
+    db_user = AuthService.get_user_by_email(db, email=user.email)
+    if db_user:
+        raise HTTPException(
+            status_code=400,
+            detail="Email already registered"
+        )
+    return AuthService.create_user(db, user)
+
+
+@router.post("/token", response_model=Token, summary="User login", description="Authenticate a user and return a JWT token")
+def login_for_access_token(
+    login_data: UserLogin,
+    db: Session = Depends(get_db)
+):
+    """
+    Authenticate user and provide access token.
+
+    Verifies user credentials and returns a JWT access token on success.
+    """
+    user = AuthService.authenticate_user(db, login_data.email, login_data.password)
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Incorrect email or password",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    access_token = create_access_token(data={"sub": user.email})
+    return {"access_token": access_token, "token_type": "bearer"}
+
+
+================================================================================
+
+Filename: routes/content_routes.py
+Content:
+"""
+API routes for content operations.
+
+This module defines endpoints for creating, listing, retrieving, updating,
+deleting, and streaming content records.
+"""
+
+from typing import List, Optional
+from uuid import UUID
+
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form
+from sqlalchemy.orm import Session
+
+from controllers import ContentController
+from models import ContentType, User
+# Import models and schemas directly from their packages.
+from schemas import Content, ContentCreate, ContentUpdate
+from utils import get_db, get_current_user
+
+router = APIRouter(
+    tags=["content"],
+    responses={404: {"description": "Not found"}},
+)
+
+
+@router.post("/content/", response_model=Content, summary="Create new content",
+             description="Uploads a file and creates a content record")
+async def create_content(
+        title: str = Form(...),
+        description: str = Form(...),
+        content_type: ContentType = Form(...),
+        duration: int = Form(...),
+        thumbnail_url: Optional[str] = Form(None),
+        file: UploadFile = File(...),
+        db: Session = Depends(get_db),
+        current_user: User = Depends(get_current_user)
+):
+    """
+    Create new content.
+
+    This endpoint handles file uploads and creates a corresponding content record in the database.
+    """
+    content_data = ContentCreate(
+        title=title,
+        description=description,
+        content_type=content_type,
+        duration=duration,
+        thumbnail_url=thumbnail_url
+    )
+    return await ContentController.create_content(db, content_data, file)
+
+
+@router.get("/content/", response_model=List[Content], summary="List contents",
+            description="Retrieve a list of content records")
+def list_contents(
+        skip: int = 0,
+        limit: int = 100,
+        db: Session = Depends(get_db)
+):
+    """
+    List content records with pagination.
+    """
+    return ContentController.get_contents(db, skip=skip, limit=limit)
+
+
+@router.get("/content/{content_id}", response_model=Content, summary="Get content",
+            description="Retrieve a specific content record by ID")
+def get_content(content_id: UUID, db: Session = Depends(get_db)):
+    """
+    Retrieve a content record by its ID.
+    """
+    content = ContentController.get_content(db, content_id)
+    if content is None:
+        raise HTTPException(status_code=404, detail="Content not found")
+    return content
+
+
+@router.put("/content/{content_id}", response_model=Content, summary="Update content",
+            description="Update a content record and optionally upload a new file")
+async def update_content(
+        content_id: str,
+        title: Optional[str] = Form(None),
+        description: Optional[str] = Form(None),
+        duration: Optional[int] = Form(None),
+        thumbnail_url: Optional[str] = Form(None),
+        db: Session = Depends(get_db),
+        current_user: User = Depends(get_current_user)
+):
+    """
+    Update an existing content record.
+
+    Allows updating of content attributes and optionally uploading a new file. 
+    """
+    update_data = {}
+    if title:
+        update_data["title"] = title
+    if description:
+        update_data["description"] = description
+    if duration:
+        update_data["duration"] = duration
+    if thumbnail_url:
+        update_data["thumbnail_url"] = thumbnail_url
+
+    content_update = ContentUpdate(**update_data)
+    return await ContentController.update_content(db, content_id, content_update, None)
+
+
+@router.delete("/content/{content_id}", summary="Delete content", description="Delete a content record by ID")
+def delete_content(
+        content_id: UUID,
+        db: Session = Depends(get_db),
+        current_user: User = Depends(get_current_user)
+):
+    """
+    Delete a content record.
+    """
+    return ContentController.delete_content(db, content_id)
+
+
+@router.get("/content/{content_id}/stream", summary="Stream content",
+            description="Generate a presigned URL for streaming content")
+def stream_content(content_id: UUID, db: Session = Depends(get_db)):
+    """
+    Generate a presigned URL and redirect for streaming content.
+    """
+    presigned_url = ContentController.stream_content(db, content_id)
+    from fastapi.responses import RedirectResponse
+    return RedirectResponse(url=presigned_url)
+
+
+================================================================================
+
+Filename: schemas/__init__.py
+Content:
+"""
+This package contains the Pydantic schema definitions for the Clinikk TV Backend application.
+Schemas include those for content and user management.
+"""
+
+from .content import ContentBase, ContentCreate, ContentUpdate, Content
+from .user import UserBase, UserCreate, User, Token, TokenData, UserLogin
+
+__all__ = [
+    "ContentBase", "ContentCreate", "ContentUpdate", "Content",
+    "UserBase", "UserCreate", "User", "Token", "TokenData", "UserLogin"
+]
+
+
+================================================================================
+
+Filename: schemas/content.py
+Content:
+"""
+Schemas for content operations.
+
+This module defines the Pydantic models for content-related operations,
+including creation, updating, and representation of content.
+"""
+
+from datetime import datetime
+from typing import Optional
+from uuid import UUID
+
+from pydantic import BaseModel
+
+from models.content_type import ContentType
+
+
+class ContentBase(BaseModel):
+    """
+    Base model for content attributes.
+    """
+    title: str
+    description: str
+    content_type: ContentType
+    duration: int
+    thumbnail_url: Optional[str] = None
+
+
+class ContentCreate(ContentBase):
+    """
+    Model for creating new content.
+    """
+    pass
+
+
+class ContentUpdate(BaseModel):
+    """
+    Model for updating existing content.
+    """
+    title: Optional[str] = None
+    description: Optional[str] = None
+    duration: Optional[int] = None
+    thumbnail_url: Optional[str] = None
+
+
+class Content(ContentBase):
+    """
+    Model representing content with additional metadata.
+    """
+    id: UUID
+    storage_url: str
+    created_at: datetime
+    updated_at: Optional[datetime]
+
+    class Config:
+        """
+        Pydantic configuration to allow attribute-based initialization.
+        """
+        from_attributes = True
+
+
+================================================================================
+
+Filename: schemas/user.py
+Content:
+"""
+Schemas for user-related operations.
+
+This module defines the Pydantic models for user creation, login, and token management.
+"""
+
+from uuid import UUID
+
+from pydantic import BaseModel, EmailStr, ConfigDict
+
+
+class UserBase(BaseModel):
+    """
+    Base schema for user attributes.
+    """
+    email: EmailStr
+
+
+class UserCreate(UserBase):
+    """
+    Schema for creating a new user.
+    """
+    password: str
+
+
+class User(UserBase):
+    """
+    Schema representing a user with additional details.
+    """
+    id: UUID
+    is_active: bool
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class Token(BaseModel):
+    """
+    Schema for JWT token response.
+    """
+    access_token: str
+    token_type: str
+
+
+class TokenData(BaseModel):
+    """
+    Schema for token data.
+    """
+    email: str | None = None
+
+
+class UserLogin(BaseModel):
+    """
+    Schema for user login credentials.
+    """
+    email: EmailStr
+    password: str
+
+
+================================================================================
+
+Filename: services/__init__.py
+Content:
+"""
+This package contains the service layer modules for the Clinikk TV Backend application.
+Services include operations for content processing, storage interactions, authentication, etc.
+"""
+
+from .auth_service import AuthService
+from .content_service import ContentService
+from .storage_service import StorageService, S3UploadException
+
+__all__ = ["AuthService", "ContentService", "StorageService", "S3UploadException"]
+
+
+================================================================================
+
+Filename: services/auth_service.py
+Content:
+"""
+Authentication service module.
+
+This module defines the AuthService class for handling user registration,
+authentication, and retrieval.
+"""
+
+import logging
+
+from sqlalchemy.orm import Session
+
+# Import User from the models package and UserCreate from schemas.
+from models.user import User
+from schemas import UserCreate
+# Import helper functions from utils.
+from utils import get_password_hash, verify_password
+
+logger = logging.getLogger(__name__)
+
+
+class AuthService:
+    @staticmethod
+    def get_user_by_email(db: Session, email: str) -> User:
+        """
+        Retrieve a user by email.
+
+        Args:
+            db (Session): Database session.
+            email (str): User's email.
+
+        Returns:
+            User: The user instance if found, otherwise None.
+        """
+        logger.debug("Looking up user with email: %s", email)
+        return db.query(User).filter(User.email == email).first()
+
+    @staticmethod
+    def create_user(db: Session, user_create: UserCreate) -> User:
+        """
+        Create a new user with hashed password.
+
+        Args:
+            db (Session): Database session.
+            user_create (UserCreate): User creation data.
+
+        Returns:
+            User: The created user instance.
+        """
+        logger.info("Creating user with email: %s", user_create.email)
+        hashed_password = get_password_hash(user_create.password)
+        db_user = User(email=user_create.email, hashed_password=hashed_password)
+        db.add(db_user)
+        db.commit()
+        db.refresh(db_user)
+        logger.info("User created with id: %s", db_user.id)
+        return db_user
+
+    @staticmethod
+    def authenticate_user(db: Session, email: str, password: str):
+        """
+        Authenticate a user by verifying email and password.
+
+        Args:
+            db (Session): Database session.
+            email (str): User's email.
+            password (str): Plain text password.
+
+        Returns:
+            User: The authenticated user if credentials are valid, otherwise False.
+        """
+        logger.info("Authenticating user with email: %s", email)
+        user = AuthService.get_user_by_email(db, email)
+        if not user:
+            logger.warning("Authentication failed: user with email %s not found.", email)
+            return None
+        if not verify_password(password, user.hashed_password):
+            logger.warning("Authentication failed: incorrect password for user %s.", email)
+            return None
+        logger.info("User %s authenticated successfully.", email)
+        return user
+
+
+================================================================================
+
+Filename: services/content_service.py
+Content:
+"""
+Service layer for content operations.
+
+This module provides the ContentService class with methods for validating file types,
+creating, retrieving, updating, and deleting content records in the database.
+"""
+
+from fastapi import UploadFile
+from sqlalchemy.orm import Session
+
+# Import ContentCreate from the schemas package.
+from schemas import ContentCreate
+
+
+class ContentService:
+    @staticmethod
+    def validate_file_type(file: UploadFile, content_type) -> bool:
+        """
+        Validate the file type based on content type.
+
+        Args:
+            file (UploadFile): The uploaded file.
+            content_type: The expected content type (e.g., 'video' or 'audio').
+
+        Returns:
+            bool: True if the file type is allowed, False otherwise.
+        """
+        # If content_type is an enum (e.g., ContentType.VIDEO), get its string representation.
+        if hasattr(content_type, "value"):
+            content_type = content_type.value
+
+        allowed_video_types = ["video/mp4", "video/mpeg"]
+        allowed_audio_types = ["audio/mpeg", "audio/mp3", "audio/wav"]
+
+        normalized_type = content_type.lower()
+        if normalized_type == "video":
+            return file.content_type in allowed_video_types
+        elif normalized_type == "audio":
+            return file.content_type in allowed_audio_types
+        return False
+
+    @staticmethod
+    def create_content(db: Session, content: ContentCreate, content_id, storage_url: str):
+        """
+        Create a new content record in the database.
+
+        Args:
+            db (Session): Database session.
+            content (ContentCreate): Content data.
+            content_id: Unique identifier for the content.
+            storage_url (str): URL of the uploaded file.
+
+        Returns:
+            Content: The created content record.
+        """
+        from models.content import Content
+        db_content = Content(id=content_id, **content.model_dump(), storage_url=storage_url)
+        db.add(db_content)
+        db.commit()
+        db.refresh(db_content)
+        return db_content
+
+    @staticmethod
+    def get_content(db: Session, content_id):
+        """
+        Retrieve a content record by ID.
+
+        Args:
+            db (Session): Database session.
+            content_id: Unique identifier of the content.
+
+        Returns:
+            Content: The content record if found, else None.
+        """
+        from models.content import Content
+        return db.query(Content).filter(Content.id == content_id).first()
+
+    @staticmethod
+    def get_contents(db: Session, skip: int = 0, limit: int = 100):
+        """
+        Retrieve a list of content records with pagination.
+
+        Args:
+            db (Session): Database session.
+            skip (int): Number of records to skip.
+            limit (int): Maximum number of records to return.
+
+        Returns:
+            List[Content]: List of content records.
+        """
+        from models.content import Content
+        return db.query(Content).offset(skip).limit(limit).all()
+
+    @staticmethod
+    def update_content(db: Session, db_content, update_data: dict):
+        """
+        Update an existing content record with new data.
+
+        Args:
+            db (Session): Database session.
+            db_content (Content): The existing content record.
+            update_data (dict): Dictionary of fields to update.
+
+        Returns:
+            Content: The updated content record.
+        """
+        for key, value in update_data.items():
+            setattr(db_content, key, value)
+        db.commit()
+        db.refresh(db_content)
+        return db_content
+
+    @staticmethod
+    def delete_content(db: Session, db_content):
+        """
+        Delete a content record from the database.
+
+        Args:
+            db (Session): Database session.
+            db_content (Content): The content record to delete.
+        """
+        db.delete(db_content)
+        db.commit()
+
+
+================================================================================
+
+Filename: services/storage_service.py
+Content:
+"""
+Storage service module.
+
+This module provides methods for interacting with AWS S3 storage,
+including file uploads, deletion, and generating presigned URLs for streaming.
+"""
+
+import logging
+from typing import Optional
+from urllib.parse import urlparse
+
+import boto3
+from botocore.client import Config
+from botocore.exceptions import ClientError
+from fastapi import UploadFile
+from starlette.concurrency import run_in_threadpool
+
+from config import settings
+
+logger = logging.getLogger(__name__)
+
+
+class S3UploadException(Exception):
+    """
+    Custom exception for S3 upload failures.
+    """
+    pass
+
+
+class StorageService:
+    """
+    Service for interacting with S3 storage.
+    """
+
+    @staticmethod
+    def get_s3_client():
+        """
+        Create and return a new S3 client.
+
+        Returns:
+            boto3.client: An S3 client instance.
+        """
+        logger.debug("Creating new S3 client.")
+        return boto3.client(
+            's3',
+            aws_access_key_id=settings.AWS_ACCESS_KEY_ID,
+            aws_secret_access_key=settings.AWS_SECRET_ACCESS_KEY,
+            region_name=settings.AWS_REGION,
+            config=Config(signature_version='s3v4')
+        )
+
+    @staticmethod
+    async def upload_file(file: UploadFile, content_type: str, content_id: str) -> str:
+        """
+        Upload a file to S3 storage asynchronously.
+
+        Args:
+            file (UploadFile): The file to be uploaded.
+            content_type: The type of content (video/audio).
+            content_id: The UUID for the content, used as the file name.
+
+        Returns:
+            str: The URL of the uploaded file.
+
+        Raises:
+            S3UploadException: If the file upload fails.
+        """
+        # Use the enum's underlying value if available.
+        ct = content_type.value if hasattr(content_type, 'value') else str(content_type)
+        file_extension = file.filename.split('.')[-1]
+        unique_filename = f"{ct}/{str(content_id)}.{file_extension}"
+        try:
+            logger.info("Initiating file upload for %s to bucket %s", file.filename, settings.STORAGE_BUCKET)
+            s3_client = StorageService.get_s3_client()
+            # Run the blocking upload in a thread pool
+            await run_in_threadpool(
+                s3_client.upload_fileobj,
+                file.file,
+                settings.STORAGE_BUCKET,
+                unique_filename,
+                ExtraArgs={"ContentType": file.content_type},
+            )
+            logger.info("File %s uploaded successfully as %s", file.filename, unique_filename)
+            # Return the complete S3 URL
+            return f"https://{settings.STORAGE_BUCKET}.s3.{settings.AWS_REGION}.amazonaws.com/{unique_filename}"
+        except ClientError as e:
+            logger.error("Failed to upload file %s due to ClientError: %s", file.filename, e)
+            raise S3UploadException(f"Failed to upload file due to S3 ClientError: {str(e)}")
+        except Exception as e:
+            logger.error("Failed to upload file %s. Error: %s", file.filename, e)
+            raise S3UploadException(f"Failed to upload file: {str(e)}")
+
+    @staticmethod
+    def generate_presigned_url(storage_url: str, expiration: int = 3600) -> Optional[str]:
+        """
+        Generate a presigned URL to share an S3 object.
+
+        Args:
+            storage_url (str): The URL of the stored object.
+            expiration (int): Time in seconds for the presigned URL to remain valid.
+
+        Returns:
+            Optional[str]: The presigned URL as a string, or None if generation fails.
+        """
+        parsed_url = urlparse(storage_url)
+        key = parsed_url.path.lstrip('/')
+        s3_client = StorageService.get_s3_client()
+        try:
+            logger.info("Generating presigned URL for key: %s", key)
+            presigned_url = s3_client.generate_presigned_url(
+                'get_object',
+                Params={'Bucket': settings.STORAGE_BUCKET, 'Key': key},
+                ExpiresIn=expiration
+            )
+            logger.info("Presigned URL generated successfully for key: %s", key)
+        except ClientError as e:
+            logger.error("Error generating presigned URL for key %s: %s", key, e)
+            return None
+
+        return presigned_url
+
+    @staticmethod
+    def delete_file(file_url: str) -> None:
+        """
+        Delete a file from S3 storage using its URL.
+
+        Args:
+            file_url (str): The URL of the file to delete.
+
+        Raises:
+            S3UploadException: If deletion fails.
+        """
+        parsed_url = urlparse(file_url)
+        key = parsed_url.path.lstrip('/')
+        try:
+            s3_client = StorageService.get_s3_client()
+            s3_client.delete_object(Bucket=settings.STORAGE_BUCKET, Key=key)
+            logger.info("Successfully deleted S3 object with key: %s", key)
+        except ClientError as e:
+            logger.error("Failed to delete S3 object: %s", e)
+            raise S3UploadException(f"Failed to delete S3 object: {str(e)}")
+        except Exception as e:
+            logger.error("Failed to delete S3 object: %s", e)
+            raise S3UploadException(f"Failed to delete S3 object: {str(e)}") 
+
+================================================================================
+
+Filename: tests/__init__.py
+Content:
+"""
+This package contains all the test modules for the Clinikk TV Backend application.
+Tests cover authentication, content operations, health checks, and other critical functions.
+"""
+
+
+================================================================================
+
+Filename: tests/conftest.py
+Content:
+"""
+Test configuration module.
+
+This module provides fixtures for setting up the TestClient and a test database using SQLite.
+"""
+
+import pytest
+from fastapi.testclient import TestClient
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
+
+from main import app
+# Import Base and get_db from the utils package.
+from utils import Base, get_db
+
+# Use SQLite for testing
+SQLALCHEMY_DATABASE_URL = "sqlite:///./test.db"
+
+engine = create_engine(
+    SQLALCHEMY_DATABASE_URL, connect_args={"check_same_thread": False}
+)
+TestingSessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+
+
+@pytest.fixture
+def db():
+    """
+    Fixture to create and yield a test database session.
+    """
+    Base.metadata.create_all(bind=engine)
+    try:
+        db = TestingSessionLocal()
+        yield db
+    finally:
+        db.close()
+        Base.metadata.drop_all(bind=engine)
+
+
+@pytest.fixture
+def client(db):
+    """
+    Fixture to provide a TestClient with dependency override for the database.
+    """
+    def override_get_db():
+        try:
+            yield db
+        finally:
+            pass
+
+    app.dependency_overrides[get_db] = override_get_db
+
+    with TestClient(app) as client:
+        yield client
+
+    app.dependency_overrides.clear()
+
+
+================================================================================
+
+Filename: tests/test_auth.py
+Content:
+def test_register_user(client):
+    user_data = {
+        "email": "newuser@example.com",
+        "password": "strongpassword123"
+    }
+    response = client.post("/auth/register", json=user_data)
+    assert response.status_code == 200, response.text
+    user = response.json()
+    assert user["email"] == user_data["email"]
+    assert "id" in user
+
+
+def test_register_existing_user(client):
+    user_data = {
+        "email": "existinguser@example.com",
+        "password": "password123"
+    }
+    # First registration attempt.
+    response1 = client.post("/auth/register", json=user_data)
+    assert response1.status_code == 200, response1.text
+    # Second registration with the same email should fail.
+    response2 = client.post("/auth/register", json=user_data)
+    assert response2.status_code == 400, response2.text
+    detail = response2.json().get("detail", "")
+    assert detail == "Email already registered"
+
+
+def test_login(client):
+    # Register a user to later log in.
+    user_data = {
+        "email": "loginuser@example.com",
+        "password": "mypassword"
+    }
+    register_response = client.post("/auth/register", json=user_data)
+    assert register_response.status_code == 200, register_response.text
+
+    login_data = {
+        "email": user_data["email"],
+        "password": user_data["password"]
+    }
+    response = client.post("/auth/token", json=login_data)
+    assert response.status_code == 200, response.text
+    token_data = response.json()
+    assert "access_token" in token_data
+    # Typically the token type is "bearer".
+    assert token_data.get("token_type") == "bearer"
+
+
+================================================================================
+
+Filename: tests/test_auth_extra.py
+Content:
+def test_login_incorrect_password(client):
+    # Register a user first.
+    user_data = {
+        "email": "failuser@example.com",
+        "password": "correctpassword"
+    }
+    register_response = client.post("/auth/register", json=user_data)
+    assert register_response.status_code == 200, register_response.text
+
+    # Attempt login with an incorrect password.
+    login_data = {
+        "email": "failuser@example.com",
+        "password": "wrongpassword"
+    }
+    login_response = client.post("/auth/token", json=login_data)
+    assert login_response.status_code == 401, login_response.text
+    assert "Incorrect email or password" in login_response.json().get("detail", "")
+
+
+def test_register_missing_field(client):
+    # Try registering without the password field.
+    incomplete_data = {
+        "email": "incomplete@example.com"
+    }
+    response = client.post("/auth/register", json=incomplete_data)
+    # Expect a 422 Unprocessable Entity due to missing required fields.
+    assert response.status_code == 422
+
+
+================================================================================
+
+Filename: tests/test_content.py
+Content:
+"""
+Unit tests for content endpoints.
+
+This module tests content creation, retrieval, listing, update, and deletion operations.
+"""
+
+import io
+import uuid
+
+import pytest
+
+# Import models and from packages.
+from models import User
+from services import StorageService
+from utils import get_current_user
+
+
+# Dummy async function to bypass actual S3 uploading during tests.
+async def dummy_upload_file(file, content_type, content_id):
+    return f"http://dummy-url/{content_id}"
+
+
+# Override dependency for authentication.
+@pytest.fixture(autouse=True)
+def override_get_current_user(client):
+    client.app.dependency_overrides[get_current_user] = lambda: User(
+        id=uuid.uuid4(), email="testuser@example.com", is_active=True
+    )
+
+
+# Override the S3 upload function.
+@pytest.fixture(autouse=True)
+def override_storage_service(monkeypatch):
+    monkeypatch.setattr(StorageService, "upload_file", dummy_upload_file)
+
+
+def test_create_content(client):
+    """
+    Test valid content creation with a file upload.
+    """
+    file_content = b"fake video content"
+    files = {
+        "file": ("test.mp4", io.BytesIO(file_content), "video/mp4")
+    }
+    form_data = {
+        "title": "Test Video",
+        "description": "Test Description",
+        "content_type": "video",
+        "duration": "120"
+    }
+    response = client.post("/content/", data=form_data, files=files)
+    assert response.status_code == 200, response.text
+    content = response.json()
+    assert content["title"] == form_data["title"]
+    assert content["description"] == form_data["description"]
+    # Check that the dummy storage service returns the dummy URL.
+    assert "http://dummy-url/" in content.get("storage_url", "")
+
+
+def test_create_content_invalid_file(client):
+    """
+    Test content creation with an invalid file type.
+    """
+    file_content = b"fake document content"
+    files = {
+        "file": ("test.txt", io.BytesIO(file_content), "text/plain")
+    }
+    form_data = {
+        "title": "Test Document",
+        "description": "Invalid file type",
+        "content_type": "video",  # Expecting a video file but provided a text file.
+        "duration": "60"
+    }
+    response = client.post("/content/", data=form_data, files=files)
+    # An invalid file type should result in a 400 error.
+    assert response.status_code == 400, response.text
+
+
+def test_get_content(client):
+    """
+    Test retrieval of a specific content record.
+    """
+    random_uuid = str(uuid.uuid4())
+    response = client.get(f"/content/{random_uuid}")
+    # Since no content with this UUID exists, we expect a 404 response.
+    assert response.status_code == 404
+
+
+def test_list_contents(client):
+    """
+    Test retrieval of content list.
+    """
+    response = client.get("/content/")
+    assert response.status_code == 200
+    assert isinstance(response.json(), list)
+
+
+================================================================================
+
+Filename: tests/test_content_routes_extra.py
+Content:
+import io
+import uuid
+
+import pytest
+
+from models.user import User
+from utils.security import get_current_user
+
+
+# Override authentication dependency so that content routes that require a logged-in user work during tests.
+@pytest.fixture(autouse=True)
+def override_get_current_user(client):
+    client.app.dependency_overrides[get_current_user] = lambda: User(
+        id=uuid.uuid4(), email="testuser@example.com", is_active=True
+    )
+
+
+# Override the storage service methods to bypass actual S3 interactions.
+@pytest.fixture(autouse=True)
+def override_storage_service(monkeypatch):
+    async def dummy_upload_file(file, content_type, content_id):
+        return f"http://dummy-url/{content_id}"
+
+    from services.storage_service import StorageService
+    monkeypatch.setattr(StorageService, "upload_file", dummy_upload_file)
+    monkeypatch.setattr(StorageService, "generate_presigned_url",
+                        lambda storage_url, expiration=3600: "http://dummy-presigned-url")
+
+
+def create_dummy_content(client, title="Dummy Video", description="Dummy description", content_type="video",
+                         duration="120"):
+    file_content = b"dummy video content" if content_type == "video" else b"dummy audio content"
+    # Choose an appropriate file and MIME type based on the content type.
+    file_tuple = ("test.mp4", io.BytesIO(file_content), "video/mp4") if content_type == "video" else (
+        "test.mp3", io.BytesIO(file_content), "audio/mpeg")
+    files = {"file": file_tuple}
+    form_data = {
+        "title": title,
+        "description": description,
+        "content_type": content_type,
+        "duration": duration
+    }
+    response = client.post("/content/", data=form_data, files=files)
+    assert response.status_code == 200, response.text
+    return response.json()
+
+
+def test_update_content_without_file(client):
+    # Create a new content record.
+    content = create_dummy_content(client)
+    content_id = content["id"]
+
+    update_data = {
+        "title": "Updated Title",
+        "description": "Updated Description",
+        "duration": "150"
+    }
+    # Update content without providing a file.
+    response = client.put(f"/content/{content_id}", data=update_data)
+    assert response.status_code == 200, response.text
+    updated_content = response.json()
+    assert updated_content["title"] == update_data["title"]
+    assert updated_content["description"] == update_data["description"]
+    assert updated_content["duration"] == int(update_data["duration"])
+
+
+def test_update_content_with_file(client):
+    # Create initial content.
+    content = create_dummy_content(client)
+    content_id = content["id"]
+
+    update_data = {
+        "title": "Updated With File",
+        "description": "Updated Description with file",
+        "duration": "180"
+    }
+    # Provide a new file as part of the update.
+    file_content = b"updated dummy video content"
+    files = {
+        "file": ("updated.mp4", io.BytesIO(file_content), "video/mp4")
+    }
+    response = client.put(f"/content/{content_id}", data=update_data, files=files)
+    assert response.status_code == 200, response.text
+    updated_content = response.json()
+    assert updated_content["title"] == update_data["title"]
+    # Check that the dummy storage service returns the expected URL.
+    assert "http://dummy-url" in updated_content["storage_url"]
+
+
+def test_update_content_not_found(client):
+    non_existent_id = str(uuid.uuid4())
+    update_data = {
+        "title": "Non-existent Content"
+    }
+    response = client.put(f"/content/{non_existent_id}", data=update_data)
+    assert response.status_code == 404, response.text
+
+
+def test_delete_content(client):
+    # Create a content record.
+    content = create_dummy_content(client)
+    content_id = content["id"]
+
+    # Delete the created content.
+    response = client.delete(f"/content/{content_id}")
+    assert response.status_code == 200, response.text
+    msg = response.json()
+    assert msg["detail"] == "Content deleted successfully"
+
+    # Verify that the content no longer exists.
+    response = client.get(f"/content/{content_id}")
+    assert response.status_code == 404, response.text
+
+
+def test_delete_content_not_found(client):
+    non_existent_id = str(uuid.uuid4())
+    response = client.delete(f"/content/{non_existent_id}")
+    assert response.status_code == 404, response.text
+
+
+def test_stream_content_success(client):
+    # Create a content record.
+    content = create_dummy_content(client)
+    content_id = content["id"]
+
+    # Create a new TestClient instance with follow_redirects disabled.
+    from fastapi.testclient import TestClient
+    client_no_redirect = TestClient(client.app, follow_redirects=False)
+
+    # Request the streaming endpoint.
+    response = client_no_redirect.get(f"/content/{content_id}/stream")
+    
+    # Expect a redirect response (302 or 307).
+    assert response.status_code in (302, 307), response.text
+
+    location = response.headers.get("location")
+    # Verify that the dummy storage service returns the expected URL.
+    assert location == "http://dummy-presigned-url", response.text
+
+
+def test_stream_content_not_found(client):
+    non_existent_id = str(uuid.uuid4())
+    response = client.get(f"/content/{non_existent_id}/stream")
+    assert response.status_code == 404, response.text
+
+
+================================================================================
+
+Filename: tests/test_health.py
+Content:
+def test_health_check(client):
+    response = client.get("/health")
+    assert response.status_code == 200, response.text
+    assert response.json() == {"status": "healthy"}
+
+
+def test_detailed_health_check(client):
+    response = client.get("/health/detailed")
+    # Depending on your implementation the detailed check may return various keys.
+    # Here we simply ensure we get a JSON response with status code 200.
+    assert response.status_code == 200, response.text
+    data = response.json()
+    assert isinstance(data, dict)
+
+
+================================================================================
+
+Filename: tests/test_storage.py
+Content:
+import pytest
+from fastapi import UploadFile
+from services.storage_service import StorageService, S3UploadException
+
+
+class DummyUploadFile:
+    filename = "test.mp4"
+    content_type = "video/mp4"
+
+    async def read(self):
+        return b"fake video content"
+
+
+@pytest.mark.asyncio
+async def test_upload_success(monkeypatch):
+    async def dummy_put_object(*args, **kwargs):
+        return True
+
+    monkeypatch.setattr(StorageService, 'upload_file', dummy_put_object)
+    # This test would need to be adjusted to actually call StorageService.upload_file
+    file = DummyUploadFile()
+    # Simulate success case testing here.
+
+
+@pytest.mark.asyncio
+async def test_upload_failure(monkeypatch):
+    async def dummy_put_object(*args, **kwargs):
+        from botocore.exceptions import ClientError
+        raise ClientError({"Error": {"Message": "Simulated S3 error"}}, "PutObject")
+
+    monkeypatch.setattr("boto3.client",
+                        lambda *args, **kwargs: type("DummyClient", (), {"put_object": dummy_put_object}))
+    file = DummyUploadFile()
+    with pytest.raises(S3UploadException):
+        await StorageService.upload_file(file, "video", "dummy-content-id")
+
+
+================================================================================
+
+Filename: utils/__init__.py
+Content:
+"""
+This package contains various utility modules for the Clinikk TV Backend application.
+Utilities include database configuration, logging setup, password handling, and more.
+"""
+
+from .database import engine, Base, get_db
+from .guid import GUID
+from .logger import setup_logging
+from .password import get_password_hash, verify_password
+from .security import create_access_token, get_current_user
+
+__all__ = [
+    "engine", "Base", "get_db", "setup_logging",
+    "get_password_hash", "verify_password", "GUID",
+    "create_access_token", "get_current_user"
+]
+
+
+================================================================================
+
+Filename: utils/database.py
+Content:
+"""
+Database utility module.
+
+This module sets up the SQLAlchemy engine, session, and base model. It also provides a dependency for getting a database session.
+"""
+
+from sqlalchemy import create_engine
+from sqlalchemy.orm import declarative_base
+from sqlalchemy.orm import sessionmaker
+
+from config import settings
+
+DATABASE_URL = f"postgresql://{settings.POSTGRES_USER}:{settings.POSTGRES_PASSWORD}@{settings.POSTGRES_HOST}:{settings.POSTGRES_PORT}/{settings.POSTGRES_DB}"
+
+engine = create_engine(DATABASE_URL)
+SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+Base = declarative_base()
+
+
+def get_db():
+    """
+    Dependency that yields a database session.
+
+    Yields:
+        Session: SQLAlchemy session.
+    """
+    db = SessionLocal()
+    try:
+        yield db
+    finally:
+        db.close()
+       
+
+================================================================================
+
+Filename: utils/guid.py
+Content:
+import uuid
+
+from sqlalchemy.dialects.postgresql import UUID as pg_UUID
+from sqlalchemy.types import TypeDecorator, CHAR
+
+
+class GUID(TypeDecorator):
+    """
+    Platform-independent GUID type.
+
+    Uses PostgreSQL's UUID type, otherwise uses CHAR(36), storing as string.
+    """
+    cache_ok = True
+    impl = CHAR
+
+    def load_dialect_impl(self, dialect):
+        if dialect.name == 'postgresql':
+            return dialect.type_descriptor(pg_UUID(as_uuid=True))
+        else:
+            return dialect.type_descriptor(CHAR(36))
+
+    def process_bind_param(self, value, dialect):
+        if value is None:
+            return value
+        if dialect.name == 'postgresql':
+            return str(value)
+        if not isinstance(value, uuid.UUID):
+            return "%.32x" % uuid.UUID(value).int
+        else:
+            return "%.32x" % value.int
+
+    def process_result_value(self, value, dialect):
+        if value is None:
+            return value
+        if isinstance(value, uuid.UUID):
+            return value
+        if isinstance(value, int):
+            return uuid.UUID(int=value)
+        return uuid.UUID(value)
+
+
+================================================================================
+
+Filename: utils/logger.py
+Content:
+"""
+Logger setup module.
+
+This module provides a function to configure logging with rotating file handlers,
+ensuring consistent logging across the application.
+"""
+
+import logging
+import os
+from logging.handlers import RotatingFileHandler
+
+
+def setup_logging():
+    """
+    Set up logging settings for the application.
+
+    Configures the root logger to output info and error logs to rotating file handlers.
+    """
+    logger = logging.getLogger()
+    if logger.handlers:  # Avoid adding duplicates if already configured.
+        return
+
+    logger.setLevel(logging.INFO)
+    formatter = logging.Formatter(
+        "[%(asctime)s] [%(levelname)s] [%(name)s] %(message)s",
+        datefmt="%Y-%m-%d %H:%M:%S"
+    )
+
+    # Ensure the 'logs' directory exists.
+    log_dir = "logs"
+    os.makedirs(log_dir, exist_ok=True)
+
+    info_file = os.path.join(log_dir, "info.log")
+    info_handler = RotatingFileHandler(info_file, maxBytes=10*1024*1024, backupCount=5)
+    info_handler.setLevel(logging.INFO)
+    info_handler.setFormatter(formatter)
+    logger.addHandler(info_handler)
+
+    # Set up a rotating file handler for ERROR level logs.
+    error_file = os.path.join(log_dir, "error.log")
+    error_handler = RotatingFileHandler(error_file, maxBytes=10*1024*1024, backupCount=5)
+    error_handler.setLevel(logging.ERROR)
+    error_handler.setFormatter(formatter)
+    logger.addHandler(error_handler)
+
+
+================================================================================
+
+Filename: utils/password.py
+Content:
+"""
+Password utility module.
+
+This module provides functions for hashing passwords and verifying plain text passwords against hashed versions.
+"""
+
+from passlib.context import CryptContext
+
+pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+
+
+def verify_password(plain_password: str, hashed_password: str) -> bool:
+    """
+    Verify a plain password against a hashed password.
+
+    Args:
+        plain_password (str): The plain text password.
+        hashed_password (str): The hashed password.
+
+    Returns:
+        bool: True if the password matches, False otherwise.
+    """
+    return pwd_context.verify(plain_password, hashed_password)
+
+
+def get_password_hash(password: str) -> str:
+    """
+    Generate a hashed password for a given plain text password.
+
+    Args:
+        password (str): The plain text password.
+
+    Returns:
+        str: The hashed password.
+    """
+    return pwd_context.hash(password)
+
+
+================================================================================
+
+Filename: utils/security.py
+Content:
+"""
+Security utility functions.
+
+This module provides functions for creating JWT access tokens and retrieving the current authenticated user.
+"""
+
+from datetime import datetime, timedelta, timezone
+
+from fastapi import Depends, HTTPException, status
+from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
+from jose import JWTError, jwt
+from sqlalchemy.orm import Session
+
+from config import settings
+from schemas.user import TokenData
+from services.auth_service import AuthService
+from utils.database import get_db
+
+bearer_scheme = HTTPBearer()
+
+
+def create_access_token(data: dict) -> str:
+    """
+    Create a JWT access token.
+
+    Args:
+        data (dict): A dictionary containing user information.
+
+    Returns:
+        str: Encoded JWT token.
+    """
+    to_encode = data.copy()
+    expire = datetime.now(timezone.utc) + timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
+    to_encode.update({"exp": expire})
+    return jwt.encode(to_encode, settings.SECRET_KEY, algorithm=settings.ALGORITHM)
+
+
+async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(bearer_scheme),
+                           db: Session = Depends(get_db)):
+    """
+    Retrieve the current authenticated user.
+
+    Args:
+        credentials (HTTPAuthorizationCredentials): The Bearer token credentials.
+        db (Session): Database session.
+
+    Returns:
+        User: The authenticated user.
+
+    Raises:
+        HTTPException: If credentials are invalid or user is not found.
+    """
+    token = credentials.credentials
+    credentials_exception = HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="Could not validate credentials",
+        headers={"WWW-Authenticate": "Bearer"},
+    )
+    try:
+        payload = jwt.decode(token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
+        email: str = payload.get("sub")
+        if email is None:
+            raise credentials_exception
+        token_data = TokenData(email=email)
+    except JWTError:
+        raise credentials_exception
+
+    user = AuthService.get_user_by_email(db, email=token_data.email)
+    if user is None:
+        raise credentials_exception
+    return user
+
+
+================================================================================

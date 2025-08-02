@@ -1,0 +1,1981 @@
+Repository: .
+Total files processed: 16
+================================================================================
+
+
+Filename: .gitignore
+Content: [Binary file - cannot display content]
+
+
+Filename: ai.bat
+Content:
+@echo off
+:: ai.bat - Ask a question to Gemini API
+
+if "%~1" == "" (
+  echo Usage: ai [your question here]
+  echo Example: ai What is the capital of France?
+  exit /b 1
+)
+
+python "%~dp0ai.py" %*
+
+================================================================================
+
+Filename: ai.py
+Content:
+#!/usr/bin/env python3
+import os
+import argparse
+import dotenv
+from google import genai
+from google.genai import types
+import re  # For markdown formatting
+import threading
+import time
+import sys
+
+dotenv.load_dotenv()
+
+# ─────────────── Config ───────────────
+GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
+GEMINI_MODEL = "gemini-2.0-flash"
+
+# ─────────────── Color Codes ───────────────
+RESET = "\033[0m"
+BOLD = "\033[1m"
+RED = "\033[31m"
+GREEN = "\033[32m"
+YELLOW = "\033[33m"
+BLUE = "\033[34m"
+MAGENTA = "\033[35m"
+CYAN = "\033[36m"
+WHITE = "\033[37m"
+
+# ─────────────── Markdown Formatting ───────────────
+def format_markdown(text):
+    """Format markdown text for terminal display."""
+    # Handle code blocks first (they need special treatment)
+    # Match fenced code blocks with language specification
+    code_block_pattern = r'```(?:\w+)?\n(.*?)```'
+    code_blocks = re.findall(code_block_pattern, text, re.DOTALL)
+    
+    # Replace code blocks with placeholders
+    placeholder_map = {}
+    for i, block in enumerate(code_blocks):
+        placeholder = f"__CODE_BLOCK_{i}__"
+        placeholder_map[placeholder] = f"{MAGENTA}{block}{RESET}"
+        text = text.replace(f"```{block}```", placeholder, 1)
+    
+    # Headers
+    text = re.sub(r'^# (.*?)$', f"{BOLD}{BLUE}\\1{RESET}", text, flags=re.MULTILINE)
+    text = re.sub(r'^## (.*?)$', f"{BOLD}{CYAN}\\1{RESET}", text, flags=re.MULTILINE)
+    text = re.sub(r'^### (.*?)$', f"{BOLD}{GREEN}\\1{RESET}", text, flags=re.MULTILINE)
+    text = re.sub(r'^#### (.*?)$', f"{BOLD}{YELLOW}\\1{RESET}", text, flags=re.MULTILINE)
+    text = re.sub(r'^##### (.*?)$', f"{BOLD}{MAGENTA}\\1{RESET}", text, flags=re.MULTILINE)
+    text = re.sub(r'^###### (.*?)$', f"{BOLD}{WHITE}\\1{RESET}", text, flags=re.MULTILINE)
+    
+    # Bold and Italic
+    text = re.sub(r'\*\*\*(.*?)\*\*\*', f"{BOLD}{YELLOW}\\1{RESET}", text)
+    text = re.sub(r'___(.+?)___', f"{BOLD}{YELLOW}\\1{RESET}", text)
+    text = re.sub(r'\*\*(.*?)\*\*', f"{BOLD}\\1{RESET}", text)
+    text = re.sub(r'__(.+?)__', f"{BOLD}\\1{RESET}", text)
+    text = re.sub(r'\*(.*?)\*', f"{YELLOW}\\1{RESET}", text)
+    text = re.sub(r'_(.+?)_', f"{YELLOW}\\1{RESET}", text)
+    
+    # Strikethrough
+    text = re.sub(r'~~(.*?)~~', f"{RED}\\1{RESET}", text)
+    
+    # Lists
+    text = re.sub(r'^- (.*?)$', f"{CYAN}•{RESET} \\1", text, flags=re.MULTILINE)
+    text = re.sub(r'^\* (.*?)$', f"{CYAN}•{RESET} \\1", text, flags=re.MULTILINE)
+    text = re.sub(r'^\+ (.*?)$', f"{CYAN}•{RESET} \\1", text, flags=re.MULTILINE)
+    text = re.sub(r'^(\d+)\. (.*?)$', f"{CYAN}\\1.{RESET} \\2", text, flags=re.MULTILINE)
+    
+    # Blockquotes
+    text = re.sub(r'^> (.*?)$', f"{GREEN}│{RESET} \\1", text, flags=re.MULTILINE)
+    
+    # Horizontal rules
+    text = re.sub(r'^---+$', f"{CYAN}{'─' * 50}{RESET}", text, flags=re.MULTILINE)
+    text = re.sub(r'^\*\*\*+$', f"{CYAN}{'─' * 50}{RESET}", text, flags=re.MULTILINE)
+    text = re.sub(r'^___+$', f"{CYAN}{'─' * 50}{RESET}", text, flags=re.MULTILINE)
+    
+    # Links
+    text = re.sub(r'\[(.*?)\]\((.*?)\)', f"{BLUE}\\1{RESET} ({CYAN}\\2{RESET})", text)
+    
+    # Inline code (after other formatting to avoid conflicts)
+    text = re.sub(r'`(.*?)`', f"{MAGENTA}\\1{RESET}", text)
+    
+    # Restore code blocks
+    for placeholder, content in placeholder_map.items():
+        text = text.replace(placeholder, content)
+    
+    return text
+
+# ─────────────── Loading Animation ───────────────
+def _animate_loading():
+    """Display a loading animation in the terminal."""
+    animation = "|/-\\"
+    idx = 0
+    while True:
+        sys.stdout.write(f"\r{CYAN}Thinking {animation[idx % len(animation)]}{RESET}")
+        sys.stdout.flush()
+        idx += 1
+        time.sleep(0.1)
+
+def ask_gemini(question_text):
+    """Send a question to Gemini and stream back the answer."""
+    if not GEMINI_API_KEY:
+        print(f"{RED}Error: GEMINI_API_KEY environment variable not set.{RESET}")
+        print("Please set this environment variable with your API key.")
+        return None
+    
+    try:
+        # Start the loading animation in a separate thread
+        stop_animation = threading.Event()
+        animation_thread = threading.Thread(
+            target=lambda: _animate_loading_wrapper(stop_animation)
+        )
+        animation_thread.daemon = True
+        animation_thread.start()
+        
+        client = genai.Client(api_key=GEMINI_API_KEY)
+        
+        contents = [
+            types.Content(
+                role="user",
+                parts=[types.Part.from_text(text=question_text)],
+            ),
+        ]
+        
+        # Use system_instruction in the config instead of as a content item
+        generate_content_config = types.GenerateContentConfig(
+            response_mime_type="text/plain",
+            system_instruction=[
+                types.Part.from_text(text="You are an AI assistant. For every input, output only the direct answer in plain text. Do not include greetings, restatements, explanations, or any additional formatting or jargon—just the answer itself. If the user explicitly asks for explanations, reasoning, or additional context, provide them accordingly."),
+            ],
+        )
+        
+        response_chunks = client.models.generate_content_stream(
+            model=GEMINI_MODEL,
+            contents=contents,
+            config=generate_content_config,
+        )
+        
+        # Collect the entire response first
+        full_response = ""
+        for chunk in response_chunks:
+            full_response += chunk.text
+        
+        # Stop the animation before printing the response
+        stop_animation.set()
+        animation_thread.join()
+        sys.stdout.write("\r" + " " * 20 + "\r")  # Clear the animation line
+        
+        # Format the entire response at once
+        formatted_response = format_markdown(full_response)
+        
+        # Print the formatted response
+        print()  # Add a newline before the response
+        print(formatted_response)
+        print()  # Add a newline after the response
+        
+        return full_response
+
+    except Exception as e:
+        # Make sure to stop the animation if there's an error
+        if 'stop_animation' in locals() and 'animation_thread' in locals():
+            stop_animation.set()
+            animation_thread.join()
+            sys.stdout.write("\r" + " " * 20 + "\r")  # Clear the animation line
+        
+        print(f"\n{RED}Error calling Gemini API: {e}{RESET}")
+        return None
+
+def _animate_loading_wrapper(stop_event):
+    """Wrapper for the animation function that checks for the stop event."""
+    animation = "|/-\\"
+    idx = 0
+    while not stop_event.is_set():
+        sys.stdout.write(f"\r{CYAN}Thinking {animation[idx % len(animation)]}{RESET}")
+        sys.stdout.flush()
+        idx += 1
+        time.sleep(0.1)
+
+def main():
+    parser = argparse.ArgumentParser(description='Ask a question to the Gemini API.')
+    parser.add_argument('question', nargs='+', help='The question to ask Gemini.')
+    
+    args = parser.parse_args()
+    
+    question_text = " ".join(args.question)
+    
+    if not question_text:
+        print(f"{RED}Error: No question provided.{RESET}")
+        parser.print_help()
+        exit(1)
+        
+    ask_gemini(question_text)
+
+if __name__ == "__main__":
+    main()
+
+================================================================================
+
+Filename: extract.bat
+Content:
+@echo off
+python "%~dp0extract.py" %*
+
+================================================================================
+
+Filename: extract.py
+Content:
+#!/usr/bin/env python3
+import os
+import subprocess
+import argparse
+import fnmatch
+
+def load_extractignore_patterns(repo_path):
+    """Load ignore patterns from .extractignore file if it exists."""
+    extractignore_path = os.path.join(repo_path, '.extractignore')
+    patterns = []
+    
+    if os.path.exists(extractignore_path):
+        try:
+            with open(extractignore_path, 'r', encoding='utf-8') as f:
+                for line in f:
+                    line = line.strip()
+                    # Skip empty lines and comments
+                    if line and not line.startswith('#'):
+                        patterns.append(line)
+        except Exception as e:
+            print(f"Warning: Error reading .extractignore file: {e}")
+    
+    return patterns
+
+def should_ignore_file(file_path, ignore_patterns):
+    """Check if a file should be ignored based on patterns."""
+    for pattern in ignore_patterns:
+        # Normalize path separators for cross-platform compatibility
+        normalized_path = file_path.replace('\\', '/')
+        normalized_pattern = pattern.replace('\\', '/')
+        
+        # Support both simple glob patterns and path-based patterns
+        if fnmatch.fnmatch(normalized_path, normalized_pattern) or fnmatch.fnmatch(os.path.basename(normalized_path), normalized_pattern):
+            return True
+        
+        # Check if the file path starts with the pattern (for directory patterns)
+        if normalized_path.startswith(normalized_pattern + '/'):
+            return True
+            
+        # Also check if any part of the path matches (for directory patterns)
+        path_parts = normalized_path.split('/')
+        for part in path_parts:
+            if fnmatch.fnmatch(part, normalized_pattern):
+                return True
+    return False
+
+def list_git_files(repo_path):
+    """List all files tracked by git in a repository."""
+    os.chdir(repo_path)
+    result = subprocess.run(['git', 'ls-files'], 
+                           stdout=subprocess.PIPE, 
+                           text=True, 
+                           check=True)
+    return result.stdout.splitlines()
+
+def extract_git_contents(repo_path, output_file):
+    """Extract all git-tracked files' names and contents to a text file."""
+    files = list_git_files(repo_path)
+    ignore_patterns = load_extractignore_patterns(repo_path)
+    
+    if ignore_patterns:
+        print(f"Found .extractignore with {len(ignore_patterns)} patterns")
+    
+    filtered_files = []
+    ignored_files = []
+    
+    for file_path in files:
+        if should_ignore_file(file_path, ignore_patterns):
+            ignored_files.append(file_path)
+            print(f"Ignoring: {file_path}")
+            continue
+        filtered_files.append(file_path)
+    
+    if ignored_files:
+        print(f"Ignored {len(ignored_files)} files based on .extractignore patterns")
+    
+    with open(output_file, 'w', encoding='utf-8') as f:
+        f.write(f"Repository: {repo_path}\n")
+        f.write(f"Total files processed: {len(filtered_files)}\n")
+        if ignored_files:
+            f.write(f"Files ignored by .extractignore: {len(ignored_files)}\n")
+        f.write("="*80 + "\n\n")
+        
+        for file_path in filtered_files:
+            try:
+                # Skip binary files, large files, or files that can't be read as text
+                if os.path.getsize(os.path.join(repo_path, file_path)) > 1024 * 1024:  # Skip files > 1MB
+                    f.write(f"\nFilename: {file_path}\n")
+                    f.write("Content: [File too large to display]\n\n")
+                    continue
+                    
+                # Try to read the file
+                with open(os.path.join(repo_path, file_path), 'r', encoding='utf-8') as file:
+                    content = file.read()
+                    
+                f.write(f"\nFilename: {file_path}\n")
+                f.write("Content:\n")
+                f.write(content)
+                f.write("\n\n" + "="*80 + "\n")
+            except UnicodeDecodeError:
+                f.write(f"\nFilename: {file_path}\n")
+                f.write("Content: [Binary file - cannot display content]\n\n")
+            except Exception as e:
+                f.write(f"\nFilename: {file_path}\n")
+                f.write(f"Error reading file: {str(e)}\n\n")
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description='Extract all files from a git repository')
+    parser.add_argument('repo_path', help='Path to the git repository')
+    parser.add_argument('--output', '-o', default='repo_contents.txt', 
+                        help='Output file (default: repo_contents.txt)')
+    
+    args = parser.parse_args()
+    
+    if not os.path.exists(args.repo_path):
+        print(f"Error: Repository path '{args.repo_path}' does not exist")
+        exit(1)
+        
+    if not os.path.exists(os.path.join(args.repo_path, '.git')):
+        print(f"Error: '{args.repo_path}' is not a git repository")
+        exit(1)
+    
+    print(f"Extracting files from {args.repo_path}...")
+    extract_git_contents(args.repo_path, args.output)
+    print(f"Done! Results saved to {args.output}")
+
+================================================================================
+
+Filename: ghextract.bat
+Content:
+@echo off
+:: GitHub Repo Extractor by Rudra Garg
+:: Usage: drag and drop a URL or type it after the script
+
+if "%~1"=="" (
+    echo Please provide a GitHub repository URL.
+    echo Example: ghextract.bat https://github.com/username/repo.git
+    exit /b 1
+)
+
+python "%~dp0ghextract.py" %*
+pause
+
+
+================================================================================
+
+Filename: ghextract.py
+Content:
+#!/usr/bin/env python3
+import os
+import subprocess
+import argparse
+import tempfile
+import shutil
+import re
+
+def clone_repo(repo_url, temp_dir):
+    """Clone the GitHub repository to a temporary directory."""
+    print(f"Cloning {repo_url} into {temp_dir}...")
+    subprocess.run(['git', 'clone', '--depth', '1', repo_url, temp_dir], check=True)
+
+def get_repo_name(repo_url):
+    """Extract repo name from the GitHub URL."""
+    return re.sub(r'\.git$', '', repo_url.strip().split('/')[-1])
+
+def list_git_files(repo_path):
+    """List all files tracked by git in a repository."""
+    result = subprocess.run(['git', '-C', repo_path, 'ls-files'],
+                            stdout=subprocess.PIPE,
+                            text=True,
+                            check=True)
+    return result.stdout.splitlines()
+
+def extract_git_contents(repo_path, output_file):
+    """Extract all git-tracked files' names and contents to a text file."""
+    files = list_git_files(repo_path)
+
+    with open(output_file, 'w', encoding='utf-8') as f:
+        for file_path in files:
+            full_path = os.path.join(repo_path, file_path)
+            try:
+                if os.path.getsize(full_path) > 1024 * 1024:  # Skip large files
+                    f.write(f"\nFilename: {file_path}\n")
+                    f.write("Content: [File too large to display]\n\n")
+                    continue
+
+                with open(full_path, 'r', encoding='utf-8') as file:
+                    content = file.read()
+
+                f.write(f"\nFilename: {file_path}\n")
+                f.write("Content:\n")
+                f.write(content)
+                f.write("\n\n" + "="*80 + "\n")
+            except UnicodeDecodeError:
+                f.write(f"\nFilename: {file_path}\n")
+                f.write("Content: [Binary file - cannot display content]\n\n")
+            except Exception as e:
+                f.write(f"\nFilename: {file_path}\n")
+                f.write(f"Error reading file: {str(e)}\n\n")
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description='Extract contents from a GitHub repo URL')
+    parser.add_argument('repo_url', help='GitHub repository URL')
+    parser.add_argument('--output', '-o', help='Optional output filename')
+
+    args = parser.parse_args()
+    repo_name = get_repo_name(args.repo_url)
+    output_file = args.output or f"{repo_name}_contents.txt"
+
+    original_cwd = os.getcwd()
+
+    with tempfile.TemporaryDirectory() as temp_dir:
+        try:
+            clone_repo(args.repo_url, temp_dir)
+            extract_git_contents(temp_dir, output_file)
+            print(f"\n✅ Done! Results saved to '{output_file}'")
+        except subprocess.CalledProcessError as e:
+            print(f"\n❌ Error cloning repo: {e}")
+        finally:
+            os.chdir(original_cwd)  # Ensure we are not inside temp_dir during cleanup
+
+
+================================================================================
+
+Filename: ghextractall.bat
+Content:
+@echo off
+
+if "%~1" neq "" (
+  echo This script doesn’t take args; just make sure GITHUB_TOKEN and GEMINI_API_KEY are set.
+  pause
+  exit /b
+)
+python "%~dp0ghextractall.py"
+pause
+
+================================================================================
+
+Filename: ghextractall.py
+Content:
+#!/usr/bin/env python3
+# filepath: c:\Tools\ghextractall.py
+import os
+import re
+import tempfile
+import subprocess
+import requests
+import dotenv
+
+dotenv.load_dotenv()
+
+# ─────────────── Paths & Config ───────────────
+SCRIPT_DIR        = os.path.dirname(os.path.abspath(__file__))
+IGNORE_FILE       = os.path.join(SCRIPT_DIR, ".ignore")
+OWNER_IGNORE_FILE = os.path.join(SCRIPT_DIR, ".ownerignore")
+BRANCH_FILE       = os.path.join(SCRIPT_DIR, ".branch")
+
+GITHUB_TOKEN      = os.environ["GITHUB_TOKEN"]
+
+OUTPUT_DIR        = os.path.join(SCRIPT_DIR, "CONTENTS")
+
+# ─────────────── Colour Codes ───────────────
+RESET = "\033[0m"
+BOLD = "\033[1m"
+RED = "\033[31m"
+GREEN = "\033[32m"
+YELLOW = "\033[33m"
+CYAN = "\033[36m"
+
+# ─────────────── Helpers ───────────────
+def load_branch_config(path):
+    """Read repo-to-branch mappings from given file (format: owner/repo branch)."""
+    branch_map = {}
+    if not os.path.isfile(path):
+        return branch_map
+    
+    with open(path, "r", encoding="utf-8") as f:
+        for line in f:
+            line = line.strip()
+            if not line or line.startswith("#"):
+                continue
+            
+            parts = line.split(None, 1)
+            if len(parts) == 2:
+                repo_key, branch = parts
+                branch_map[repo_key] = branch
+    
+    return branch_map
+
+def load_ignore_list(path):
+    """Read one‑item per line exclusions from given file (ignores blank/#)."""
+    if not os.path.isfile(path):
+        return set()
+    with open(path, "r", encoding="utf-8") as f:
+        return {line.strip() for line in f if line.strip() and not line.startswith("#")}
+
+def get_all_repos():
+    """Fetch all repos (public + private) via GitHub API with pagination."""
+    url     = "https://api.github.com/user/repos"
+    params  = {"per_page": 100, "type": "all"}
+    headers = {"Authorization": f"token {GITHUB_TOKEN}"}
+    repos   = []
+
+    while url:
+        resp = requests.get(url, headers=headers, params=params)
+        resp.raise_for_status()
+        repos.extend(resp.json())
+        url    = resp.links.get("next", {}).get("url")
+        params = None
+
+    return repos
+
+def get_repo_name(repo_url):
+    """Extract repo name from its URL."""
+    return re.sub(r'\.git$', '', repo_url.rstrip("/").split("/")[-1])
+
+def clone_repo(repo_url, dest, branch=None):
+    """Clone the repo and checkout specific branch if provided."""
+    if branch:
+        try:
+            # Try to clone with specific branch
+            subprocess.run(
+                ["git", "clone", "--depth", "1", "--branch", branch, repo_url, dest],
+                check=True,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.PIPE,
+                timeout=60
+            )
+        except subprocess.CalledProcessError as e:
+            # If specific branch clone fails, fall back to default branch
+            print(f"\n{YELLOW}Branch '{branch}' not found, falling back to default branch...{RESET}", end=" ", flush=True)
+            subprocess.run(
+                ["git", "clone", "--depth", "1", repo_url, dest],
+                check=True,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                timeout=60
+            )
+    else:
+        # Standard clone of default branch
+        subprocess.run(
+            ["git", "clone", "--depth", "1", repo_url, dest],
+            check=True,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            timeout=60
+        )
+
+def list_git_files(repo_path):
+    """List all tracked files in the repo."""
+    result = subprocess.run(
+        ["git", "-C", repo_path, "ls-files"],
+        stdout=subprocess.PIPE,
+        text=True,
+        check=True
+    )
+    return result.stdout.splitlines()
+
+def extract_contents(repo_path):
+    """Concatenate all tracked files into one big text (skips >1MB/binary)."""
+    parts = []
+    for f in list_git_files(repo_path):
+        full = os.path.join(repo_path, f)
+        parts.append(f"\nFilename: {f}\n")
+        parts.append("Content:\n")
+        try:
+            if os.path.getsize(full) > 1_048_576:
+                parts.append("[File too large to display]\n\n")
+                continue
+            text = open(full, encoding="utf-8", errors="strict").read()
+            parts.append(text)
+            parts.append("\n\n" + "="*80 + "\n")
+        except (UnicodeDecodeError, PermissionError):
+            parts.append("[Binary file - cannot display content]\n\n")
+    return "".join(parts)
+
+# ─────────────── Main ───────────────
+def main():
+    os.makedirs(OUTPUT_DIR, exist_ok=True)
+    repo_ignore_set   = load_ignore_list(IGNORE_FILE)
+    owner_ignore_set  = load_ignore_list(OWNER_IGNORE_FILE)
+    branch_config     = load_branch_config(BRANCH_FILE)
+
+    repos = get_all_repos()
+    print(f"{CYAN}Found {len(repos)} repos — skipping {len(repo_ignore_set)} by name and {len(owner_ignore_set)} by owner.{RESET}")
+    print(f"{CYAN}Using {len(branch_config)} branch specifications from {BRANCH_FILE}.{RESET}\n")
+
+    for repo in repos:
+        owner    = repo["owner"]["login"]
+        repo_url = repo["clone_url"]
+        repo_name= get_repo_name(repo_url)
+        repo_key = f"{owner}/{repo_name}"
+
+        if owner in owner_ignore_set:
+            print(f"{YELLOW}→ {repo_key}  (skipped via .ownerignore){RESET}")
+            continue
+        if repo_name in repo_ignore_set:
+            print(f"{YELLOW}→ {repo_key}  (skipped via .ignore){RESET}")
+            continue
+
+        # Get specific branch for this repo if defined
+        branch = branch_config.get(repo_key)
+        branch_info = f" (branch: {branch})" if branch else ""
+        
+        print(f"{CYAN}→ {repo_key}{branch_info}…{RESET}", end=" ", flush=True)
+        try:
+            with tempfile.TemporaryDirectory() as td:
+                clone_repo(repo_url, td, branch)
+                contents = extract_contents(td)
+
+                out_file = os.path.join(
+                    OUTPUT_DIR,
+                    f"{owner}_{repo_name}_contents.txt"
+                )
+                with open(out_file, "w", encoding="utf-8") as fo:
+                    fo.write(contents)
+
+            print(f"{GREEN}✅{RESET}")
+        except subprocess.TimeoutExpired:
+            print(f"{RED}❌ Clone timeout{RESET}")
+        except subprocess.CalledProcessError:
+            print(f"{RED}❌ Git error{RESET}")
+        except Exception as e:
+            print(f"{RED}❌ {e}{RESET}")
+
+    print(f"\n{BOLD}All done! Repository contents in: {OUTPUT_DIR}{RESET}")
+
+if __name__ == "__main__":
+    main()
+
+================================================================================
+
+Filename: ghsummarize.bat
+Content:
+@echo off
+:: summarize_repos.bat — GitHub → Gemini auto‑summaries
+if "%~1" neq "" (
+  echo This script doesn’t take args; just make sure GITHUB_TOKEN and GEMINI_API_KEY are set.
+  pause
+  exit /b
+)
+python "%~dp0ghsummarize.py"
+pause
+
+================================================================================
+
+Filename: ghsummarize.py
+Content:
+#!/usr/bin/env python3
+import os
+import re
+import tempfile
+import subprocess
+import requests
+import dotenv
+
+from google import genai
+from google.genai import types
+
+dotenv.load_dotenv()
+
+# ─────────────── Paths & Config ───────────────
+SCRIPT_DIR        = os.path.dirname(os.path.abspath(__file__))
+IGNORE_FILE       = os.path.join(SCRIPT_DIR, ".ignore")
+OWNER_IGNORE_FILE = os.path.join(SCRIPT_DIR, ".ownerignore")
+BRANCH_FILE       = os.path.join(SCRIPT_DIR, ".branch")
+
+GITHUB_TOKEN      = os.environ["GITHUB_TOKEN"]
+GEMINI_API_KEY    = os.environ["GEMINI_API_KEY"]
+GEMINI_MODEL      = "gemini-2.0-flash"
+
+OUTPUT_DIR        = os.path.join(SCRIPT_DIR, "SUMMARIES")
+
+# ─────────────── Colour Codes ───────────────
+RESET = "\033[0m"
+BOLD = "\033[1m"
+RED = "\033[31m"
+GREEN = "\033[32m"
+YELLOW = "\033[33m"
+CYAN = "\033[36m"
+
+# ─────────────── Helpers ───────────────
+def load_branch_config(path):
+    """Read repo-to-branch mappings from given file (format: owner/repo branch)."""
+    branch_map = {}
+    if not os.path.isfile(path):
+        return branch_map
+    
+    with open(path, "r", encoding="utf-8") as f:
+        for line in f:
+            line = line.strip()
+            if not line or line.startswith("#"):
+                continue
+            
+            parts = line.split(None, 1)
+            if len(parts) == 2:
+                repo_key, branch = parts
+                branch_map[repo_key] = branch
+    
+    return branch_map
+
+def load_ignore_list(path):
+    """Read one‑item per line exclusions from given file (ignores blank/#)."""
+    if not os.path.isfile(path):
+        return set()
+    with open(path, "r", encoding="utf-8") as f:
+        return {line.strip() for line in f if line.strip() and not line.startswith("#")}
+
+def get_all_repos():
+    """Fetch all repos (public + private) via GitHub API with pagination."""
+    url     = "https://api.github.com/user/repos"
+    params  = {"per_page": 100, "type": "all"}
+    headers = {"Authorization": f"token {GITHUB_TOKEN}"}
+    repos   = []
+
+    while url:
+        resp = requests.get(url, headers=headers, params=params)
+        resp.raise_for_status()
+        repos.extend(resp.json())
+        url    = resp.links.get("next", {}).get("url")
+        params = None
+
+    return repos
+
+def get_repo_name(repo_url):
+    """Extract repo name from its URL."""
+    return re.sub(r'\.git$', '', repo_url.rstrip("/").split("/")[-1])
+
+def clone_repo(repo_url, dest, branch=None):
+    """Clone the repo and checkout specific branch if provided."""
+    if branch:
+        try:
+            # Try to clone with specific branch
+            subprocess.run(
+                ["git", "clone", "--depth", "1", "--branch", branch, repo_url, dest],
+                check=True,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.PIPE,
+                timeout=60
+            )
+        except subprocess.CalledProcessError as e:
+            # If specific branch clone fails, fall back to default branch
+            print(f"\n{YELLOW}Branch '{branch}' not found, falling back to default branch...{RESET}", end=" ", flush=True)
+            subprocess.run(
+                ["git", "clone", "--depth", "1", repo_url, dest],
+                check=True,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                timeout=60
+            )
+    else:
+        # Standard clone of default branch
+        subprocess.run(
+            ["git", "clone", "--depth", "1", repo_url, dest],
+            check=True,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            timeout=60
+        )
+
+def list_git_files(repo_path):
+    """List all tracked files in the repo."""
+    result = subprocess.run(
+        ["git", "-C", repo_path, "ls-files"],
+        stdout=subprocess.PIPE,
+        text=True,
+        check=True
+    )
+    return result.stdout.splitlines()
+
+def extract_contents(repo_path):
+    """Concatenate all tracked files into one big text (skips >1MB/binary)."""
+    parts = []
+    for f in list_git_files(repo_path):
+        full = os.path.join(repo_path, f)
+        parts.append(f"\n--- {f} ---\n")
+        try:
+            if os.path.getsize(full) > 1_048_576:
+                parts.append("[SKIPPED: too large]\n")
+                continue
+            text = open(full, encoding="utf-8", errors="strict").read()
+            parts.append(text + "\n")
+        except (UnicodeDecodeError, PermissionError):
+            parts.append("[SKIPPED: binary or unreadable]\n")
+    return "".join(parts)
+
+def summarize_with_gemini(owner, repo_name, text):
+    """Send a prompt to Gemini and stream back the summary."""
+    client = genai.Client(api_key=GEMINI_API_KEY)
+    prompt = f"""
+**Role:** Expert Software Engineer
+
+**Task:** Analyze the provided repository contents for "{owner}/{repo_name}" and generate a concise, structured, and technical summary suitable for another developer quickly understanding the project's purpose, structure, and key characteristics.
+
+**Input Context:** The input contains a concatenation of multiple file contents from the repository. Each file's content is preceded by a line starting with `Filename: ` and followed by `Content:`. Files are separated by lines of `================================================================================`. Some files might be marked as binary or too large to display. A `tree.txt` file providing a directory structure may also be included.
+
+**Output Format:** Generate a summary in Markdown format, covering the following sections precisely:
+
+---
+
+# Repository Summary: {owner}/{repo_name}
+
+1.  **Project Goal & Core Functionality:**
+    *   Succinctly state the primary purpose of this project based on file names (e.g., `PortalChessGame.jsx`, `CustomChessEngine.js`), `package.json` (`name`), `index.html` (`title`), and any relevant README content. What problem does it solve or what does it enable?
+    *   List 1-3 key features evident from component names, dependencies, or configuration (e.g., Portal Chess gameplay, Firebase Auth, Realtime Database interaction, Profile Management, CI/CD via GitHub Actions).
+
+2.  **Technology Stack:**
+    *   **Languages:** Primary programming languages detected (likely JavaScript/JSX based on file extensions).
+    *   **Frameworks/Libraries:** Major frameworks/libraries identified from `package.json` dependencies (e.g., React, Vite, Firebase, Tailwind CSS, `chess.js`, `react-chessboard`, `peerjs`, `framer-motion`).
+    *   **Key Dependencies:** Mention critical backend services suggested by imports or config (e.g., Firebase Auth, Firebase Realtime Database) and potentially P2P communication (PeerJS). Note any interaction with a separate backend API (look for `BACKEND_URL` usage).
+    *   **Infrastructure/Ops:** Note tools like Docker (if `Dockerfile` present), CI/CD platforms (GitHub Actions based on `.github/workflows/`), and hosting platforms (Firebase Hosting based on `firebase.json` and workflows).
+
+3.  **Repository Structure Overview (Based on `tree.txt` if available, otherwise inferred):**
+    *   Describe the purpose of the main top-level directories (`src/`, `public/`, `.github/`).
+    *   Describe the purpose of key `src/` subdirectories (e.g., `components/`, `contexts/`, `firebase/`, `hooks/`, `utils/`).
+    *   Mention where the core application code likely resides (e.g., `src/App.jsx`, `src/components/game/`).
+    *   Mention where static assets are stored (`public/`).
+    *   Explicitly state if test directories/files are apparent or absent.
+
+4.  **Key Files & Entry Points:**
+    *   Identify crucial configuration files (`package.json`, `vite.config.js`, `firebase.json`, `.firebaserc`, `tailwind.config.js`, `eslint.config.js`).
+    *   Identify application entry points (`index.html`, `src/main.jsx`, `src/App.jsx`).
+    *   Point out build/deployment-related files (`.github/workflows/*.yml`, `firebase.json`).
+    *   Mention key application logic files (e.g., `src/components/game/PortalChessGame.jsx`, `src/components/game/CustomChessEngine.js`, `src/firebase/config.js`, `src/contexts/AuthContext.jsx`, `src/config.js`).
+    *   Mention the main documentation file (`README.md`, note if its content is minimal/generic).
+
+5.  **Development & Usage Hints (Inferred):**
+    *   **Setup/Installation:** Infer setup steps from `package.json` scripts and workflow files (e.g., `npm ci` or `npm install`).
+    *   **Running:** Infer run command from `package.json` scripts (e.g., `npm run dev`).
+    *   **Building:** Infer build command from `package.json` scripts and workflows (e.g., `npm run build`). Note the output directory (`dist/` based on `vite.config.js`).
+    *   **Deployment:** Describe deployment process inferred from workflows (e.g., GitHub Actions deploying `dist/` to Firebase Hosting). Mention required secrets/env vars (e.g., `VITE_FIREBASE_*`, `VITE_BACKEND_URL`).
+    *   **Testing:** Mention linting (`npm run lint`). State if other testing mechanisms are suggested or absent.
+    *   *Constraint:* State clearly if information is not directly found in the provided input.
+
+6.  **Notable Patterns & Conventions (Inferred):**
+    *   Mention observed patterns: React functional components with Hooks, component-based architecture, context API for state (`AuthContext`), utility/helper functions (`src/utils/`), custom hooks (`src/hooks/`), Firebase for BaaS, Tailwind CSS utility classes, Vite build tool, GitHub Actions CI/CD, use of environment variables (`.env` in `.gitignore`, `VITE_` prefix), potential P2P communication (PeerJS). Dependence on an external backend API.
+    *   *Constraint:* Only report patterns strongly suggested by file names, configurations, or code snippets.
+
+7.  **Overall Impression & Potential Use Case:**
+    *   A brief concluding sentence summarizing the project type (e.g., "A web frontend for a custom 'Portal Chess' game") and its key characteristics (e.g., "Utilizes React/Vite/Firebase, includes authentication, real-time features, CI/CD, and depends on a separate backend API.").
+
+---
+
+**Instructions for the AI:**
+*   Adhere strictly to the requested Markdown format and sections.
+*   Base your analysis *solely* on the provided input, parsing the `Filename:` and `Content:` structure.
+*   Do *not* attempt to interpret binary file contents; acknowledge their presence if listed.
+*   If information for a specific point is missing or unclear in input, explicitly state that (e.g., "Test setup not specified.").
+*   Prioritize information from key files like `package.json`, `vite.config.js`, `firebase.json`, `.github/workflows/`, `src/App.jsx`, `src/components/game/CustomChessEngine.js`, `src/config.js`, and `tree.txt` when available.
+*   Synthesize information across multiple files (e.g., connect `package.json` scripts with workflow steps).
+*   Maintain a neutral, technical tone.
+
+Here is the input:
+{text}
+"""
+    contents = [
+        types.Content(
+            role="user",
+            parts=[types.Part(text=prompt)]
+        )
+    ]
+    cfg = types.GenerateContentConfig(response_mime_type="text/plain")
+    summary_chunks = client.models.generate_content_stream(
+        model=GEMINI_MODEL,
+        contents=contents,
+        config=cfg
+    )
+    return "".join(chunk.text for chunk in summary_chunks)
+
+
+# ─────────────── Main ───────────────
+def main():
+    os.makedirs(OUTPUT_DIR, exist_ok=True)
+    repo_ignore_set   = load_ignore_list(IGNORE_FILE)
+    owner_ignore_set  = load_ignore_list(OWNER_IGNORE_FILE)
+    branch_config     = load_branch_config(BRANCH_FILE)
+
+    repos = get_all_repos()
+    print(f"{CYAN}Found {len(repos)} repos — skipping {len(repo_ignore_set)} by name and {len(owner_ignore_set)} by owner.{RESET}")
+    print(f"{CYAN}Using {len(branch_config)} branch specifications from {BRANCH_FILE}.{RESET}\n")
+
+    for repo in repos:
+        owner    = repo["owner"]["login"]
+        repo_url = repo["clone_url"]
+        repo_name= get_repo_name(repo_url)
+        repo_key = f"{owner}/{repo_name}"
+
+        if owner in owner_ignore_set:
+            print(f"{YELLOW}→ {repo_key}  (skipped via .ownerignore){RESET}")
+            continue
+        if repo_name in repo_ignore_set:
+            print(f"{YELLOW}→ {repo_key}  (skipped via .ignore){RESET}")
+            continue
+
+        # Get specific branch for this repo if defined
+        branch = branch_config.get(repo_key)
+        branch_info = f" (branch: {branch})" if branch else ""
+        
+        print(f"{CYAN}→ {repo_key}{branch_info}…{RESET}", end=" ", flush=True)
+        try:
+            with tempfile.TemporaryDirectory() as td:
+                clone_repo(repo_url, td, branch)
+                contents = extract_contents(td)
+                summary  = summarize_with_gemini(owner, repo_name, contents)
+
+                out_file = os.path.join(
+                    OUTPUT_DIR,
+                    f"{owner}_{repo_name}_summary.md"
+                )
+                with open(out_file, "w", encoding="utf-8") as fo:
+                    fo.write(summary)
+
+            print(f"{GREEN}✅{RESET}")
+        except subprocess.TimeoutExpired:
+            print(f"{RED}❌ Clone timeout{RESET}")
+        except subprocess.CalledProcessError:
+            print(f"{RED}❌ Git error{RESET}")
+        except Exception as e:
+            print(f"{RED}❌ {e}{RESET}")
+
+    print(f"\n{BOLD}All done! Summaries in: {OUTPUT_DIR}{RESET}")
+
+if __name__ == "__main__":
+    main()
+
+
+================================================================================
+
+Filename: minecraft_mod_updater.bat
+Content:
+@echo off
+:: Minecraft Mod Updater - Batch File Launcher
+:: This batch file helps run the Minecraft Mod Updater script with common options
+
+echo Minecraft Mod Updater (Modrinth Only) - FABRIC VERSION
+echo ----------------------------------------
+
+:: Always use Fabric loader
+set ARGS=--loader fabric
+
+:MENU
+echo.
+echo Select an option:
+echo 1. Run with default settings
+echo 2. Specify Minecraft version
+echo 3. Specify mods directory
+echo 4. Skip backups
+echo 5. Advanced options (specify all parameters)
+echo 6. Exit
+echo.
+
+set /p CHOICE="Enter your choice (1-6): "
+
+if "%CHOICE%"=="1" goto RUN
+if "%CHOICE%"=="2" goto VERSION
+if "%CHOICE%"=="3" goto MODS_DIR
+if "%CHOICE%"=="4" goto SKIP_BACKUP
+if "%CHOICE%"=="5" goto ADVANCED
+if "%CHOICE%"=="6" goto END
+
+echo Invalid choice. Please try again.
+goto MENU
+
+:VERSION
+set /p MC_VERSION="Enter Minecraft version (e.g., 1.20.1): "
+set ARGS=%ARGS% --minecraft-version "%MC_VERSION%"
+goto RUN
+
+:MODS_DIR
+set /p MODS_PATH="Enter path to mods directory: "
+set ARGS=%ARGS% --mods-dir "%MODS_PATH%"
+goto RUN
+
+:SKIP_BACKUP
+set ARGS=%ARGS% --no-backup
+goto RUN
+
+:ADVANCED
+set /p MC_VERSION="Enter Minecraft version (leave blank to skip): "
+if not "%MC_VERSION%"=="" set ARGS=%ARGS% --minecraft-version "%MC_VERSION%"
+
+set /p MODS_PATH="Enter path to mods directory (leave blank for default): "
+if not "%MODS_PATH%"=="" set ARGS=%ARGS% --mods-dir "%MODS_PATH%"
+
+set /p BACKUP_PATH="Enter backup directory (leave blank for default): "
+if not "%BACKUP_PATH%"=="" set ARGS=%ARGS% --backup-dir "%BACKUP_PATH%"
+
+set /p NO_BACKUP="Skip backups? (y/n): "
+if /i "%NO_BACKUP%"=="y" set ARGS=%ARGS% --no-backup
+
+goto RUN
+
+:RUN
+echo.
+echo Running Minecraft Mod Updater with the following settings:
+echo Using FABRIC loader for all mods
+echo python "%~dp0minecraft_mod_updater.py" %ARGS%
+echo.
+python "%~dp0minecraft_mod_updater.py" %ARGS%
+
+:END
+echo.
+echo Press any key to exit...
+pause >nul
+
+================================================================================
+
+Filename: minecraft_mod_updater.py
+Content:
+#!/usr/bin/env python3
+"""
+Minecraft Mod Updater
+
+This script automatically updates installed Minecraft mods to their latest versions.
+It uses the Modrinth platform for all mods.
+"""
+
+import os
+import json
+import shutil
+import time
+import zipfile
+import requests
+from pathlib import Path
+from concurrent.futures import ThreadPoolExecutor
+import argparse
+
+# Constants
+MODRINTH_API_BASE = "https://api.modrinth.com/v2"
+
+# Default headers for API requests
+HEADERS = {
+    "User-Agent": "MinecraftModUpdater/1.0",
+    "Accept": "application/json"
+}
+
+class ModUpdater:
+    def __init__(self, mods_dir=None, backup_dir=None, minecraft_version=None, loader=None):
+        """Initialize the mod updater with directories and Minecraft version."""
+        self.mods_dir = self._get_default_mods_dir() if mods_dir is None else Path(mods_dir)
+        self.backup_dir = Path(self.mods_dir, "../mod_backups") if backup_dir is None else Path(backup_dir)
+        self.minecraft_version = minecraft_version
+        self.loader = loader
+        self.mods_data = {}
+        self.update_count = 0
+        self.check_count = 0
+        self.not_found_count = 0
+        
+        # Create backup directory if it doesn't exist
+        self.backup_dir.mkdir(parents=True, exist_ok=True)
+        
+        # Timestamp for backups
+        self.timestamp = time.strftime("%Y%m%d_%H%M%S")
+        
+    def _get_default_mods_dir(self):
+        """Get the default mods directory based on the operating system."""
+        home = Path.home()
+        
+        if os.name == 'nt':  # Windows
+            return Path(os.getenv('APPDATA', str(home)), ".minecraft", "mods")
+        elif os.name == 'posix':  # macOS/Linux
+            if os.path.exists(Path(home, "Library", "Application Support", "minecraft")):  # macOS
+                return Path(home, "Library", "Application Support", "minecraft", "mods")
+            else:  # Linux
+                return Path(home, ".minecraft", "mods")
+        
+        # Fallback
+        return Path(home, ".minecraft", "mods")
+        
+    def scan_mods(self):
+        """Scan the mods directory and identify all installed mods."""
+        print(f"Scanning mods directory: {self.mods_dir}")
+        
+        if not self.mods_dir.exists():
+            print(f"Error: Mods directory {self.mods_dir} does not exist.")
+            return False
+            
+        mod_files = list(self.mods_dir.glob("*.jar"))
+        
+        if not mod_files:
+            print("No mod files found.")
+            return False
+            
+        print(f"Found {len(mod_files)} mod files.")
+        
+        # Process each mod file to extract information
+        with ThreadPoolExecutor() as executor:
+            executor.map(self.process_mod_file, mod_files)
+            
+        print(f"Successfully processed {len(self.mods_data)} mods.")
+        return True
+        
+    def process_mod_file(self, mod_path):
+        """Extract metadata from a mod file."""
+        try:
+            mod_id = None
+            mod_name = None
+            mod_loader = None
+            
+            # Try to extract the fabric.mod.json or META-INF/mods.toml
+            with zipfile.ZipFile(mod_path, 'r') as zip_ref:
+                file_list = zip_ref.namelist()
+                
+                # Check for Fabric mod
+                if 'fabric.mod.json' in file_list:
+                    with zip_ref.open('fabric.mod.json') as f:
+                        data = json.load(f)
+                        mod_id = data.get('id')
+                        mod_name = data.get('name')
+                        mod_loader = 'fabric'
+                
+                # Check for Forge mod
+                elif 'META-INF/mods.toml' in file_list:
+                    with zip_ref.open('META-INF/mods.toml') as f:
+                        content = f.read().decode('utf-8')
+                        # Basic parsing of TOML
+                        for line in content.split('\n'):
+                            if line.startswith('modId'):
+                                mod_id = line.split('=')[1].strip().strip('"\'')
+                            elif line.startswith('displayName'):
+                                mod_name = line.split('=')[1].strip().strip('"\'')
+                            if mod_id and mod_name:
+                                break
+                        mod_loader = 'forge'
+                
+                # Check for mcmod.info (older Forge)
+                elif 'mcmod.info' in file_list:
+                    with zip_ref.open('mcmod.info') as f:
+                        data = json.load(f)
+                        if isinstance(data, list) and data:
+                            mod_id = data[0].get('modid')
+                            mod_name = data[0].get('name')
+                        elif isinstance(data, dict) and 'modList' in data:
+                            mod_id = data['modList'][0].get('modid')
+                            mod_name = data['modList'][0].get('name')
+                        mod_loader = 'forge'
+            
+            # If we found a mod ID
+            if mod_id and (self.loader is None or self.loader == mod_loader):
+                self.mods_data[mod_path.name] = {
+                    'path': str(mod_path),
+                    'mod_id': mod_id,
+                    'mod_name': mod_name or mod_id,  # Use ID as fallback if name not found
+                    'current_file': mod_path.name,
+                    'loader': mod_loader
+                }
+                print(f"Found mod: {mod_id} ({mod_path.name})")
+            else:
+                print(f"Warning: Could not identify mod ID for {mod_path.name}")
+                
+        except Exception as e:
+            print(f"Error processing mod file {mod_path.name}: {e}")
+    
+    def update_mods(self):
+        """Update all mods to their latest versions using Modrinth."""
+        if not self.mods_data:
+            print("No mods data available. Run scan_mods() first.")
+            return
+            
+        print(f"Checking {len(self.mods_data)} mods for updates on Modrinth...")
+        
+        # Process each mod
+        for mod_name, mod_info in self.mods_data.items():
+            try:
+                self.check_count += 1
+                self.update_modrinth_mod(mod_info)
+            except Exception as e:
+                print(f"Error updating {mod_name}: {e}")
+                
+        print(f"Update complete. Checked {self.check_count} mods.")
+        print(f"Updated {self.update_count} mods.")
+        print(f"Could not find {self.not_found_count} mods on Modrinth.")
+        
+    def backup_mods(self):
+        """Create a backup of all mods."""
+        backup_folder = Path(self.backup_dir, f"backup_{self.timestamp}")
+        backup_folder.mkdir(parents=True, exist_ok=True)
+        
+        print(f"Creating backup in {backup_folder}")
+        
+        for mod_name, mod_info in self.mods_data.items():
+            try:
+                src_path = Path(mod_info['path'])
+                dst_path = Path(backup_folder, src_path.name)
+                shutil.copy2(src_path, dst_path)
+            except Exception as e:
+                print(f"Error backing up {mod_name}: {e}")
+                
+        print(f"Backup complete. {len(self.mods_data)} mods backed up.")
+        
+    def update_modrinth_mod(self, mod_info):
+        """Update a mod from Modrinth."""
+        mod_id = mod_info['mod_id']
+        mod_name = mod_info['mod_name']
+        current_file = mod_info['current_file']
+        
+        print(f"Checking for updates for mod: {mod_name} ({mod_id})")
+        
+        # First try direct lookup by mod_id
+        try:
+            # Try to find the project directly by its ID
+            response = requests.get(f"{MODRINTH_API_BASE}/project/{mod_id}", headers=HEADERS)
+            
+            # If we get a 404, try to search for the project instead
+            if response.status_code == 404:
+                print(f"Project {mod_id} not found directly, trying search...")
+                return self._search_and_update_mod(mod_info)
+                
+            response.raise_for_status()  # Handle other errors
+            project = response.json()
+            project_id = project['id']
+            
+            # Get latest version compatible with the specified Minecraft version
+            version_url = f"{MODRINTH_API_BASE}/project/{project_id}/version"
+            if self.minecraft_version:
+                version_url += f"?game_versions=[\"{self.minecraft_version}\"]"
+                
+            response = requests.get(version_url, headers=HEADERS)
+            response.raise_for_status()
+            versions = response.json()
+            
+            if not versions:
+                print(f"No compatible versions found for {mod_name}")
+                return
+                
+            # Get the latest version
+            latest_version = versions[0]
+            
+            # Download the latest version
+            download_url = latest_version['files'][0]['url']
+            new_filename = latest_version['files'][0]['filename']
+            
+            # Skip if already up to date
+            if new_filename == current_file:
+                print(f"Mod {mod_name} is already up to date")
+                return
+                
+            # Download and update the mod
+            self._download_and_replace_mod(mod_info['path'], download_url, new_filename)
+            self.update_count += 1
+            
+            print(f"Updated {mod_name} from {current_file} to {new_filename}")
+            
+        except requests.exceptions.RequestException as e:
+            if "404" in str(e):
+                self._search_and_update_mod(mod_info)
+            else:
+                print(f"Error fetching data from Modrinth for {mod_name}: {e}")
+        except Exception as e:
+            print(f"Error updating mod {mod_name}: {e}")
+    
+    def _search_and_update_mod(self, mod_info):
+        """Search for a mod on Modrinth and update it if found."""
+        mod_id = mod_info['mod_id']
+        mod_name = mod_info['mod_name']
+        current_file = mod_info['current_file']
+        
+        try:
+            # Search for the mod using both ID and name
+            search_terms = [mod_id]
+            if mod_name and mod_name != mod_id:
+                search_terms.append(mod_name)
+                
+            # Try each search term
+            project = None
+            for term in search_terms:
+                search_url = f"{MODRINTH_API_BASE}/search"
+                params = {
+                    'query': term,
+                    'limit': 5,
+                    'facets': '[[\"project_type:mod\"]]'  # Only search for mods
+                }
+                
+                response = requests.get(search_url, headers=HEADERS, params=params)
+                response.raise_for_status()
+                search_results = response.json()
+                
+                # Check if we have results
+                if search_results['hits']:
+                    # Find the best match
+                    best_match = None
+                    best_score = 0
+                    
+                    for hit in search_results['hits']:
+                        # Calculate match score (simple algorithm)
+                        score = 0
+                        if hit['slug'] == mod_id.lower():
+                            score += 10
+                        if hit['title'].lower() == mod_name.lower():
+                            score += 10
+                        if mod_id.lower() in hit['slug']:
+                            score += 5
+                        if mod_name.lower() in hit['title'].lower():
+                            score += 5
+                            
+                        if score > best_score:
+                            best_score = score
+                            best_match = hit
+                    
+                    # If we found a decent match
+                    if best_match and best_score >= 5:
+                        project = best_match
+                        break
+            
+            # If we found a project
+            if project:
+                project_id = project['project_id']
+                
+                # Get latest version compatible with the specified Minecraft version
+                version_url = f"{MODRINTH_API_BASE}/project/{project_id}/version"
+                if self.minecraft_version:
+                    version_url += f"?game_versions=[\"{self.minecraft_version}\"]"
+                    
+                response = requests.get(version_url, headers=HEADERS)
+                response.raise_for_status()
+                versions = response.json()
+                
+                if not versions:
+                    print(f"No compatible versions found for {mod_name}")
+                    return
+                    
+                # Get the latest version
+                latest_version = versions[0]
+                
+                # Download the latest version
+                download_url = latest_version['files'][0]['url']
+                new_filename = latest_version['files'][0]['filename']
+                
+                # Skip if already up to date
+                if new_filename == current_file:
+                    print(f"Mod {mod_name} is already up to date")
+                    return
+                    
+                # Download and update the mod
+                self._download_and_replace_mod(mod_info['path'], download_url, new_filename)
+                self.update_count += 1
+                
+                print(f"Updated {mod_name} from {current_file} to {new_filename}")
+            else:
+                print(f"Could not find {mod_name} on Modrinth")
+                self.not_found_count += 1
+                
+        except requests.exceptions.RequestException as e:
+            print(f"Error searching for {mod_name} on Modrinth: {e}")
+        except Exception as e:
+            print(f"Error updating mod {mod_name}: {e}")
+    
+    def _download_and_replace_mod(self, old_path, download_url, new_filename):
+        """Download a new mod version and replace the old one."""
+        try:
+            # Download the new version
+            response = requests.get(download_url, headers=HEADERS)
+            response.raise_for_status()
+            
+            # Path for the new file
+            new_path = Path(self.mods_dir, new_filename)
+            
+            # Write the new file
+            with open(new_path, 'wb') as f:
+                f.write(response.content)
+                
+            # Remove the old file if it's different from the new one
+            if old_path != str(new_path):
+                os.remove(old_path)
+                
+            return True
+        except Exception as e:
+            print(f"Error downloading mod: {e}")
+            return False
+
+def main():
+    """Main function to run the mod updater."""
+    parser = argparse.ArgumentParser(description='Minecraft Mod Updater (Modrinth Only)')
+    parser.add_argument('--mods-dir', type=str, help='Path to the mods directory')
+    parser.add_argument('--backup-dir', type=str, help='Path to the backup directory')
+    parser.add_argument('--minecraft-version', type=str, help='Minecraft version (e.g., 1.20.1)')
+    parser.add_argument('--loader', type=str, choices=['fabric', 'forge'], help='Mod loader type (fabric/forge)')
+    parser.add_argument('--no-backup', action='store_true', help='Skip creating backups')
+    
+    args = parser.parse_args()
+    
+    # Initialize updater
+    updater = ModUpdater(
+        mods_dir=args.mods_dir,
+        backup_dir=args.backup_dir,
+        minecraft_version=args.minecraft_version,
+        loader=args.loader
+    )
+    
+    print("Minecraft Mod Updater (Modrinth Only)")
+    print("-" * 40)
+    print(f"Mods directory: {updater.mods_dir}")
+    if args.no_backup:
+        print("Backups: Disabled")
+    else:
+        print(f"Backup directory: {updater.backup_dir}")
+    if args.minecraft_version:
+        print(f"Minecraft version: {args.minecraft_version}")
+    if args.loader:
+        print(f"Loader: {args.loader}")
+    print("-" * 40)
+    
+    # Run the update process
+    if updater.scan_mods():
+        if not args.no_backup:
+            updater.backup_mods()
+        updater.update_mods()
+    else:
+        print("Failed to scan mods. Update aborted.")
+
+if __name__ == "__main__":
+    main()
+
+================================================================================
+
+Filename: readme.md
+Content:
+# Developer Tools Collection
+
+A comprehensive collection of command-line tools for developers, featuring AI-powered code analysis, repository management, and Minecraft mod utilities.
+
+## 🚀 Tools Overview
+
+### 🤖 AI & Analysis Tools
+
+#### `ai` - AI-Powered Assistant
+Ask questions to Google's Gemini AI directly from the command line.
+
+**Usage:**
+```bash
+ai "What is the capital of France?"
+ai "Explain how JavaScript closures work"
+```
+
+**Features:**
+- Color-coded markdown formatting in terminal
+- Loading animations for better UX
+- Supports complex technical questions
+
+#### `summarize` - Repository Summarizer
+Generate comprehensive AI-powered summaries of local Git repositories.
+
+**Usage:**
+```bash
+summarize C:\Projects\my-repo
+summarize . --extract-only  # Extract files without summarizing
+```
+
+**Features:**
+- Analyzes all Git-tracked files
+- Generates structured technical summaries
+- Identifies technology stack, patterns, and architecture
+- Output saved as markdown files
+
+### 📦 GitHub Repository Tools
+
+#### `ghextract` - Single Repository Extractor
+Extract contents from any GitHub repository URL.
+
+**Usage:**
+```bash
+ghextract https://github.com/username/repo.git
+ghextract https://github.com/username/repo.git -o custom_output.txt
+```
+
+**Features:**
+- Clones repository temporarily
+- Extracts all Git-tracked files
+- Handles binary files gracefully
+- Auto-generates output filename
+
+#### `ghextractall` - Bulk Repository Extractor
+Extract contents from all your GitHub repositories at once.
+
+**Usage:**
+```bash
+ghextractall
+```
+
+**Features:**
+- Fetches all public and private repositories
+- Supports custom branch configurations
+- Ignore lists for filtering repositories
+- Concurrent processing for speed
+- Creates organized output in `CONTENTS/` directory
+
+#### `ghsummarize` - Bulk Repository Summarizer
+Generate AI summaries for all your GitHub repositories.
+
+**Usage:**
+```bash
+ghsummarize
+```
+
+**Features:**
+- Processes all your GitHub repositories
+- AI-powered technical summaries
+- Structured analysis of tech stack and architecture
+- Output saved in `SUMMARIES/` directory
+
+### 🎮 Gaming Tools
+
+#### `minecraft_mod_updater` - Minecraft Mod Manager
+Automatically update Minecraft mods to their latest versions using Modrinth.
+
+**Usage:**
+```bash
+minecraft_mod_updater
+minecraft_mod_updater --minecraft-version 1.20.1 --loader fabric
+```
+
+**Features:**
+- Supports Fabric and Forge mods
+- Automatic mod detection and updating
+- Backup system for safety
+- Interactive batch interface
+- Modrinth platform integration
+
+### 🔧 Utility Tools
+
+#### `extract` - Local Repository Extractor
+Extract contents from local Git repositories.
+
+**Usage:**
+```bash
+extract C:\Projects\my-repo
+extract /path/to/repo --output contents.txt
+```
+
+## 📋 Prerequisites
+
+### Required Environment Variables
+Create a `.env` file in the tools directory with:
+
+```env
+GEMINI_API_KEY=your_gemini_api_key_here
+GITHUB_TOKEN=your_github_token_here
+```
+
+### Dependencies
+- **Python 3.7+** with the following packages:
+  - `google-generativeai`
+  - `python-dotenv`
+  - `requests`
+- **Git** installed and accessible from command line
+
+### API Keys Setup
+
+#### Gemini API Key
+1. Visit [Google AI Studio](https://makersuite.google.com/app/apikey)
+2. Create a new API key
+3. Add to your `.env` file
+
+#### GitHub Token
+1. Go to GitHub Settings > Developer settings > Personal access tokens
+2. Generate a new token with `repo` permissions
+3. Add to your `.env` file
+
+## 🚀 Installation
+
+1. Clone or download this repository to your desired location (e.g., `C:\Tools`)
+2. Add the tools directory to your system PATH
+3. Install Python dependencies:
+   ```bash
+   pip install google-generativeai python-dotenv requests
+   ```
+4. Set up your `.env` file with required API keys
+
+## ⚙️ Configuration Files
+
+### `.ignore` - Repository Ignore List
+List repositories to skip during bulk operations:
+```
+my-private-repo
+test-repository
+archived-project
+```
+
+### `.ownerignore` - Owner Ignore List
+Skip repositories from specific users/organizations:
+```
+spammer-user
+test-org
+```
+
+### `.branch` - Custom Branch Configuration
+Specify custom branches for repositories:
+```
+owner/repo main
+another-owner/special-repo development
+```
+
+## 📁 Output Structure
+
+```
+Tools/
+├── CONTENTS/           # Extracted repository contents
+│   ├── owner_repo_contents.txt
+│   └── ...
+├── SUMMARIES/          # AI-generated summaries
+│   ├── owner_repo_summary.md
+│   └── ...
+├── .env               # Environment variables
+├── .ignore            # Repository ignore list
+├── .ownerignore       # Owner ignore list
+└── .branch            # Branch configurations
+```
+
+## 🎯 Use Cases
+
+- **Code Analysis**: Quickly understand unfamiliar codebases
+- **Portfolio Management**: Generate summaries of all your projects
+- **Research**: Extract and analyze open-source projects
+- **Documentation**: Auto-generate technical documentation
+- **Gaming**: Keep Minecraft mods up-to-date effortlessly
+- **AI Assistance**: Get quick answers to technical questions
+
+## 🔍 Features
+
+- **AI-Powered Analysis**: Leverages Google's Gemini for intelligent code understanding
+- **Batch Processing**: Handle multiple repositories efficiently
+- **Flexible Configuration**: Customize behavior with ignore lists and branch settings
+- **Safety Features**: Backup systems and error handling
+- **Cross-Platform**: Works on Windows, macOS, and Linux
+- **Terminal UI**: Color-coded output and progress indicators
+
+## 🛠️ Technical Details
+
+- **Language**: Python 3
+- **AI Model**: Google Gemini 2.0 Flash
+- **APIs**: GitHub REST API, Modrinth API
+- **File Handling**: UTF-8 encoding with binary file detection
+- **Concurrency**: ThreadPoolExecutor for parallel processing
+- **Error Handling**: Graceful handling of network issues and file errors
+
+## 📝 Examples
+
+### Generate a repository summary
+```bash
+# Summarize current directory
+summarize .
+
+# Summarize specific repository
+summarize C:\Projects\my-react-app
+```
+
+### Extract repository contents
+```bash
+# From GitHub URL
+ghextract https://github.com/facebook/react.git
+
+# From local repository
+extract C:\Projects\my-app -o app-contents.txt
+```
+
+### Update Minecraft mods
+```bash
+# Interactive mode
+minecraft_mod_updater
+
+# Specific version
+minecraft_mod_updater --minecraft-version 1.20.1 --loader fabric --no-backup
+```
+
+### Ask AI questions
+```bash
+ai "How do I implement a binary search tree in Python?"
+ai "Explain the differences between React hooks"
+```
+
+## 🤝 Contributing
+
+Feel free to submit issues, feature requests, or pull requests to improve these tools.
+
+## 📄 License
+
+This project is open source and available under the MIT License.
+
+---
+
+*Happy coding! 🚀*
+
+================================================================================
+
+Filename: summarize.bat
+Content:
+@echo off
+:: summarize.bat — Local Git Repository to Gemini auto-summaries
+if "%~1" == "" (
+  echo Usage: summarize.bat [repository_path]
+  echo Example: summarize.bat C:\Projects\my-repo
+  pause
+  exit /b
+)
+
+echo Summarizing repository: %~1
+python "%~dp0summarize.py" "%~1"
+pause
+
+================================================================================
+
+Filename: summarize.py
+Content:
+#!/usr/bin/env python3
+import os
+import subprocess
+import argparse
+import dotenv
+from google import genai
+from google.genai import types
+
+dotenv.load_dotenv()
+
+# ─────────────── Paths & Config ───────────────
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+OUTPUT_DIR = os.getcwd()  # Changed to current working directory
+GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
+GEMINI_MODEL = "gemini-2.0-flash"
+
+# ─────────────── Color Codes ───────────────
+RESET = "\033[0m"
+BOLD = "\033[1m"
+RED = "\033[31m"
+GREEN = "\033[32m"
+YELLOW = "\033[33m"
+CYAN = "\033[36m"
+
+# ─────────────── Helpers ───────────────
+def list_git_files(repo_path):
+    """List all files tracked by git in a repository."""
+    original_dir = os.getcwd()
+    try:
+        os.chdir(repo_path)
+        result = subprocess.run(
+            ['git', 'ls-files'], 
+            stdout=subprocess.PIPE, 
+            text=True, 
+            check=True
+        )
+        return result.stdout.splitlines()
+    finally:
+        os.chdir(original_dir)
+
+def extract_contents(repo_path):
+    """Extract all git-tracked files' contents into a formatted string."""
+    files = list_git_files(repo_path)
+    parts = []
+    
+    for file_path in files:
+        full_path = os.path.join(repo_path, file_path)
+        parts.append(f"\nFilename: {file_path}\nContent:\n")
+        
+        try:
+            # Skip binary files, large files, or files that can't be read as text
+            if os.path.getsize(full_path) > 1_048_576:  # Skip files > 1MB
+                parts.append("[File too large to display]\n")
+                continue
+                
+            # Try to read the file
+            with open(full_path, 'r', encoding='utf-8', errors='strict') as file:
+                content = file.read()
+                parts.append(content)
+                
+            parts.append("\n\n" + "=" * 80 + "\n")
+        except UnicodeDecodeError:
+            parts.append("[Binary file - cannot display content]\n")
+        except Exception as e:
+            parts.append(f"[Error reading file: {str(e)}]\n")
+    
+    return "".join(parts)
+
+def get_repo_info(repo_path):
+    """Extract owner and repo name from the git remote URL."""
+    original_dir = os.getcwd()
+    try:
+        os.chdir(repo_path)
+        result = subprocess.run(
+            ['git', 'remote', 'get-url', 'origin'], 
+            stdout=subprocess.PIPE, 
+            text=True, 
+            check=True
+        )
+        remote_url = result.stdout.strip()
+        
+        # Parse the remote URL to extract owner and repo name
+        # Handles both HTTPS and SSH formats
+        if remote_url.startswith('https://'):
+            parts = remote_url.split('/')
+            owner = parts[-2]
+            repo_name = parts[-1].replace('.git', '')
+        else:  # SSH format: git@github.com:owner/repo.git
+            parts = remote_url.split(':')[-1].split('/')
+            owner = parts[-2] if len(parts) > 1 else None
+            repo_name = parts[-1].replace('.git', '')
+            
+        return owner, repo_name
+    except subprocess.CalledProcessError:
+        # If no remote URL exists, use directory name as repo name
+        repo_name = os.path.basename(os.path.abspath(repo_path))
+        return "local", repo_name
+    finally:
+        os.chdir(original_dir)
+
+def summarize_with_gemini(owner, repo_name, text):
+    """Send a prompt to Gemini and stream back the summary."""
+    if not GEMINI_API_KEY:
+        print(f"{RED}Error: GEMINI_API_KEY environment variable not set{RESET}")
+        return "Error: GEMINI_API_KEY not set. Please set this environment variable with your API key."
+    
+    client = genai.Client(api_key=GEMINI_API_KEY)
+    prompt = f"""
+**Role:** Expert Software Engineer
+
+**Task:** Analyze the provided repository contents for "{owner}/{repo_name}" and generate a concise, structured, and technical summary suitable for another developer quickly understanding the project's purpose, structure, and key characteristics.
+
+**Input Context:** The input contains a concatenation of multiple file contents from the repository. Each file's content is preceded by a line starting with `Filename: ` and followed by `Content:`. Files are separated by lines of `================================================================================`. Some files might be marked as binary or too large to display. A `tree.txt` file providing a directory structure may also be included.
+
+**Output Format:** Generate a summary in Markdown format, covering the following sections precisely:
+
+---
+
+# Repository Summary: {owner}/{repo_name}
+
+1.  **Project Goal & Core Functionality:**
+    *   Succinctly state the primary purpose of this project based on file names, `package.json` (`name`), `index.html` (`title`), and any relevant README content. What problem does it solve or what does it enable?
+    *   List 1-3 key features evident from component names, dependencies, or configuration.
+
+2.  **Technology Stack:**
+    *   **Languages:** Primary programming languages detected.
+    *   **Frameworks/Libraries:** Major frameworks/libraries identified from dependencies.
+    *   **Key Dependencies:** Mention critical backend services suggested by imports or config.
+    *   **Infrastructure/Ops:** Note tools like Docker, CI/CD platforms, and hosting platforms.
+
+3.  **Repository Structure Overview (Based on `tree.txt` if available, otherwise inferred):**
+    *   Describe the purpose of the main top-level directories.
+    *   Describe the purpose of key subdirectories.
+    *   Mention where the core application code likely resides.
+    *   Mention where static assets are stored.
+    *   Explicitly state if test directories/files are apparent or absent.
+
+4.  **Key Files & Entry Points:**
+    *   Identify crucial configuration files.
+    *   Identify application entry points.
+    *   Point out build/deployment-related files.
+    *   Mention key application logic files.
+    *   Mention the main documentation file.
+
+5.  **Development & Usage Hints (Inferred):**
+    *   **Setup/Installation:** Infer setup steps from scripts and workflow files.
+    *   **Running:** Infer run command from scripts.
+    *   **Building:** Infer build command from scripts and workflows.
+    *   **Deployment:** Describe deployment process inferred from workflows.
+    *   **Testing:** Mention testing mechanisms.
+    *   State clearly if information is not directly found in the provided input.
+
+6.  **Notable Patterns & Conventions (Inferred):**
+    *   Mention observed patterns and conventions.
+    *   Only report patterns strongly suggested by file names, configurations, or code snippets.
+
+7.  **Overall Impression & Potential Use Case:**
+    *   A brief concluding sentence summarizing the project type and its key characteristics.
+
+---
+
+**Instructions for the AI:**
+*   Adhere strictly to the requested Markdown format and sections.
+*   Base your analysis *solely* on the provided input.
+*   Do *not* attempt to interpret binary file contents; acknowledge their presence if listed.
+*   If information for a specific point is missing or unclear in input, explicitly state that.
+*   Prioritize information from key files when available.
+*   Synthesize information across multiple files.
+*   Maintain a neutral, technical tone.
+
+Here is the input:
+{text}
+"""
+    contents = [
+        types.Content(
+            role="user",
+            parts=[types.Part(text=prompt)]
+        )
+    ]
+    cfg = types.GenerateContentConfig(response_mime_type="text/plain")
+    try:
+        summary_chunks = client.models.generate_content_stream(
+            model=GEMINI_MODEL,
+            contents=contents,
+            config=cfg
+        )
+        return "".join(chunk.text for chunk in summary_chunks)
+    except Exception as e:
+        print(f"{RED}Error calling Gemini API: {e}{RESET}")
+        return f"Error generating summary: {e}"
+
+def main():
+    parser = argparse.ArgumentParser(description='Extract and summarize a git repository')
+    parser.add_argument('repo_path', help='Path to the git repository')
+    parser.add_argument('--output', '-o', help='Output file (default: auto-generated based on repo name)')
+    parser.add_argument('--extract-only', '-e', action='store_true', help='Only extract contents without summarizing')
+    
+    args = parser.parse_args()
+    
+    # Validate repository path
+    if not os.path.exists(args.repo_path):
+        print(f"{RED}Error: Repository path '{args.repo_path}' does not exist{RESET}")
+        exit(1)
+        
+    if not os.path.exists(os.path.join(args.repo_path, '.git')):
+        print(f"{RED}Error: '{args.repo_path}' is not a git repository{RESET}")
+        exit(1)
+    
+    # Create output directory if needed
+    os.makedirs(OUTPUT_DIR, exist_ok=True)
+    
+    # Get repository info
+    owner, repo_name = get_repo_info(args.repo_path)
+    
+    # Determine output file path
+    if args.output:
+        output_file = args.output
+    else:
+        if args.extract_only:
+            output_file = f"{owner}_{repo_name}_contents.txt"
+        else:
+            output_file = os.path.join(OUTPUT_DIR, f"{owner}_{repo_name}_summary.md")
+    
+    print(f"{CYAN}Extracting files from {args.repo_path}...{RESET}")
+    contents = extract_contents(args.repo_path)
+    
+    if args.extract_only:
+        # Save extracted contents to file
+        with open(output_file, 'w', encoding='utf-8') as f:
+            f.write(contents)
+        print(f"{GREEN}Done! Repository contents saved to {output_file}{RESET}")
+    else:
+        # Summarize and save
+        print(f"{CYAN}Summarizing repository {owner}/{repo_name}...{RESET}")
+        summary = summarize_with_gemini(owner, repo_name, contents)
+        
+        with open(output_file, 'w', encoding='utf-8') as f:
+            f.write(summary)
+        
+        print(f"{GREEN}Done! Summary saved to {output_file}{RESET}")
+
+if __name__ == "__main__":
+    main()
+
+================================================================================

@@ -1,0 +1,474 @@
+
+Filename: .gitignore
+Content:
+.DS_Store
+.idea
+
+alert-ventory.crt
+alert-ventory.key
+
+================================================================================
+
+Filename: .helmignore
+Content:
+# Patterns to ignore when building packages.
+# This supports shell glob matching, relative path matching, and
+# negation (prefixed with !). Only one pattern per line.
+.DS_Store
+# Common VCS dirs
+.git/
+.gitignore
+.bzr/
+.bzrignore
+.hg/
+.hgignore
+.svn/
+# Common backup files
+*.swp
+*.bak
+*.tmp
+*.orig
+*~
+# Various IDEs
+.project
+.idea/
+*.tmproj
+.vscode/
+
+
+================================================================================
+
+Filename: Chart.yaml
+Content:
+apiVersion: v2
+name: helm.alert.ventory
+description: Helm chart for alert.ventory deployment
+
+# A chart can be either an 'application' or a 'library' chart.
+#
+# Application charts are a collection of templates that can be packaged into versioned archives
+# to be deployed.
+#
+# Library charts provide useful utilities or functions for the chart developer. They're included as
+# a dependency of application charts to inject those utilities and functions into the rendering
+# pipeline. Library charts do not define any templates and therefore cannot be deployed.
+type: application
+
+# This is the chart version. This version number should be incremented each time you make changes
+# to the chart and its templates, including the app version.
+# Versions are expected to follow Semantic Versioning (https://semver.org/)
+version: 0.1.0
+
+# This is the version number of the application being deployed. This version number should be
+# incremented each time you make changes to the application. Versions are not expected to
+# follow Semantic Versioning. They should reflect the version the application is using.
+# It is recommended to use it with quotes.
+appVersion: "1.16.0"
+
+
+================================================================================
+
+Filename: LICENSE
+Content:
+helm.alert.ventory License
+Grig Technologies Pvt Ltd · All rights reserved.
+
+1. License Grant
+Permission is hereby granted to Grig Technologies Pvt. Ltd., its employees, and authorized contributors to view, modify, and contribute to the codebase of this project for internal use only.
+
+2. Usage Restrictions
+This project and its code, files, documentation, or any related materials may only be used within Grig Technologies or as authorized by Grig Technologies in writing.
+No part of this project, including the code, documents, or other assets, may be shared, published, distributed, or disclosed to any third party, in whole or in part, without express written permission from Grig Technologies.
+Contributors are not allowed to use or share the contents of this project in any form for personal, commercial, or public use outside the scope of this project.
+
+3. Contribution Guidelines
+Authorized contributors may only contribute code to the project.
+Contributors must not copy or replicate any part of this project for use outside the project or share contributions with others without explicit written permission from Grig Technologies.
+All contributions to this project are subject to approval and may be rejected by Grig Technologies at its sole discretion.
+
+4. Confidentiality
+This project contains proprietary and confidential information of Grig Technologies. By accessing and contributing to this project, contributors agree to maintain its confidentiality and not disclose any information regarding this project, either directly or indirectly, to unauthorized parties.
+
+5. Intellectual Property
+All contributions made to this project become the sole property of Grig Technologies. Contributors agree to waive all claims to intellectual property rights over any contribution.
+
+6. Termination of Access
+Grig Technologies reserves the right to terminate any contributor's access to this project at any time without prior notice, if the terms of this license are violated or for any other reason deemed necessary by Grig Technologies.
+
+7. Legal Actions
+Any violation of this license may result in legal action by Grig Technologies, including but not limited to, claims for damages or injunctions.
+
+================================================================================
+
+Filename: README.md
+Content:
+# helm.alert.ventory
+
+**Helm Repository for Project alert.ventory**
+
+---
+
+### 1. Configuration
+
+Before running the setup scripts, update the following files to match your environment:
+
+- `nginx.sh`
+- `certificate.sh`
+- `app.sh`
+- `k8s/cluster-issuer.yaml`
+- `k8s/certificate.yaml`
+- `templates/backend/ingress.yaml`
+
+Replace all occurrences of:
+
+- `alert-ventory` → your desired **namespace**
+- `ingressClass` → your preferred **ingress class name**
+
+---
+
+### 2. Deployment Steps
+
+Run the following scripts in order:
+
+```bash
+./nginx.sh         # Sets up the NGINX Ingress Controller
+./certificate.sh   # Creates TLS certificates using cert-manager
+./app.sh      # Installs alert.ventory via Helm with the specified configurations
+```
+
+---
+
+- [LICENSE](LICENSE)
+- [CONTACT ADMIN](mailto:shubham.garg@grigtechnologies.com)
+
+================================================================================
+
+Filename: app.sh
+Content:
+# assuming the namespace is created via nginx.sh
+kubectl config set-context --current --namespace=alert-ventory
+
+# Kubernetes secret with your Harbor credentials
+kubectl delete secret harbor-secret
+kubectl create secret docker-registry harbor-secret \
+  --docker-server=harbor.grigtech.io \
+  --docker-username='robot$alert.ventory-bot' \
+  --docker-password='KlN6Ky9x9IDFdZigC6k9Zz4fn69vbGvh'
+
+# install alert-ventory
+# helm upgrade --install alert-ventory .
+helm uninstall alert-ventory
+helm install alert-ventory .
+
+# get the pods info
+kubectl get pods
+kubectl get configmaps
+kubectl get ingress
+kubectl get svc
+
+================================================================================
+
+Filename: certificate.sh
+Content:
+# assuming the namespace is created via nginx.sh
+kubectl config set-context --current --namespace=alert-ventory
+
+# create the private key and public cert
+openssl req -x509 -nodes -days 365 -newkey rsa:2048 \
+  -keyout alert-ventory.key -out alert-ventory.crt \
+  -subj "/CN=alert.ventory.in/O=GrigTechnologies"
+
+# apply cert manager
+kubectl apply -f https://github.com/cert-manager/cert-manager/releases/latest/download/cert-manager.yaml
+kubectl apply -f k8s/cluster-issuer.yaml
+kubectl apply -f k8s/certificate.yaml
+
+# create tls
+kubectl create secret tls alert-ventory-tls --cert=alert-ventory.crt --key=alert-ventory.key
+
+================================================================================
+
+Filename: k8s/certificate.yaml
+Content:
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: alert-ventory-cert
+spec:
+  secretName: alert-ventory-tls
+  issuerRef:
+    name: letsencrypt-prod
+    kind: ClusterIssuer
+  commonName: alert.ventory.in
+  dnsNames:
+    - alert.ventory.in
+
+================================================================================
+
+Filename: k8s/cluster-issuer.yaml
+Content:
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+  name: letsencrypt-prod
+spec:
+  acme:
+    email: grigtechnologiespvtltd@gmail.com
+    server: https://acme-v02.api.letsencrypt.org/directory
+    privateKeySecretRef:
+      name: letsencrypt-prod
+    solvers:
+    - http01:
+        ingress:
+          class: alert-ventory
+
+================================================================================
+
+Filename: nginx.sh
+Content:
+# get all namespaces
+kubectl get namespaces
+
+# create new namespace and set it as context
+kubectl delete namespace alert-ventory
+kubectl create namespace alert-ventory
+kubectl config set-context --current --namespace=alert-ventory
+
+# delete pre-existing alert-ventory ingress webhook configuration
+kubectl get validatingwebhookconfigurations
+kubectl delete validatingwebhookconfiguration alert-ventory-ingress-ingress-nginx-admission
+
+# install ingress-nginx
+helm repo add ingress-nginx https://kubernetes.github.io/ingress-nginx
+helm repo update
+helm install alert-ventory-ingress ingress-nginx/ingress-nginx \
+  --set controller.watchNamespace=alert-ventory \
+  --set controller.ingressClass=alert-ventory \
+  --set controller.ingressClassResource.name=alert-ventory \
+  --set controller.service.externalTrafficPolicy=Local
+
+# get the service info about ingress-nginx
+kubectl get svc
+
+================================================================================
+
+Filename: templates/backend-api/configmap.yaml
+Content:
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  annotations:
+    use-subpath: "true"
+  name: backend-api-configmap
+data:
+  # Service-Type
+  SERVICE_TYPE: "api"
+
+================================================================================
+
+Filename: templates/backend-api/deployment.yaml
+Content:
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: backend-api
+spec:
+  replicas: {{ .Values.backend.api.replicas }}
+  selector:
+    matchLabels:
+      app: backend-api
+  template:
+    metadata:
+      labels:
+        app: backend-api
+    spec:
+      containers:
+        - name: backend-api
+          image: "{{ .Values.backend.image }}"
+          envFrom:
+            - configMapRef:
+                name: backend-configmap
+            - configMapRef:
+                name: backend-api-configmap
+          ports:
+            - containerPort: 8123
+              protocol: "TCP"
+      restartPolicy: Always
+      imagePullSecrets:
+        - name: harbor-secret
+
+================================================================================
+
+Filename: templates/backend-api/ingress.yaml
+Content:
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: backend-api-ingress
+  annotations:
+    nginx.ingress.kubernetes.io/rewrite-target: /
+    nginx.ingress.kubernetes.io/force-ssl-redirect: "true"
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+spec:
+  ingressClassName: alert-ventory
+  rules:
+    - host: alert.ventory.in
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: backend-api
+                port:
+                  number: 8123
+  tls:
+    - hosts:
+        - alert.ventory.in
+      secretName: alert-ventory-tls
+
+================================================================================
+
+Filename: templates/backend-api/service.yaml
+Content:
+apiVersion: v1
+kind: Service
+metadata:
+  name: backend-api
+spec:
+  ports:
+    - name: backend-api
+      port: 8123
+      targetPort: 8123
+  selector:
+    app: backend-api
+
+================================================================================
+
+Filename: templates/backend-configmap.yaml
+Content:
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  annotations:
+    use-subpath: "true"
+  name: backend-configmap
+data:
+  # Secret-Key
+  SECRET_KEY: "{{ .Values.backend.env.SecretKey.SECRET_KEY }}"
+
+  # Zepto-Mail
+  SMTP_USERNAME: "{{ .Values.backend.env.ZeptoMail.SMTP_USERNAME }}"
+  SMTP_PASSWORD: "{{ .Values.backend.env.ZeptoMail.SMTP_PASSWORD }}"
+  SMTP_PORT: "{{ .Values.backend.env.ZeptoMail.SMTP_PORT }}"
+  SMTP_HOST: "{{ .Values.backend.env.ZeptoMail.SMTP_HOST }}"
+
+  # Zoho-OAuth
+  ZOHO_CLIENT_ID: "{{ .Values.backend.env.ZohoOAuth.ZOHO_CLIENT_ID }}"
+  ZOHO_CLIENT_SECRET: "{{ .Values.backend.env.ZohoOAuth.ZOHO_CLIENT_SECRET }}"
+  ZOHO_REDIRECT_URI: "{{ .Values.backend.env.ZohoOAuth.ZOHO_REDIRECT_URI }}"
+  ZOHO_TOKEN_URL: "{{ .Values.backend.env.ZohoOAuth.ZOHO_TOKEN_URL }}"
+
+  # Supabase
+  DB_USER: "{{ .Values.backend.env.Supabase.DB_USER }}"
+  DB_PASSWORD: "{{ .Values.backend.env.Supabase.DB_PASSWORD }}"
+  DB_HOST: "{{ .Values.backend.env.Supabase.DB_HOST }}"
+  DB_PORT: "{{ .Values.backend.env.Supabase.DB_PORT }}"
+  DB_NAME: "{{ .Values.backend.env.Supabase.DB_NAME }}"
+  TENANT_ID: "{{ .Values.backend.env.Supabase.TENANT_ID }}"
+  ANON_KEY: "{{ .Values.backend.env.Supabase.ANON_KEY }}"
+  SERVICE_ROLE_KEY: "{{ .Values.backend.env.Supabase.SERVICE_ROLE_KEY }}"
+
+  # Temporal
+  TEMPORAL_HOST: "{{ .Values.backend.env.Temporal.TEMPORAL_HOST }}"
+  TEMPORAL_PORT: "{{ .Values.backend.env.Temporal.TEMPORAL_PORT }}"
+  EMAIL_FROM: "{{ .Values.backend.env.Temporal.EMAIL_FROM }}"
+
+================================================================================
+
+Filename: templates/backend-worker/configmap.yaml
+Content:
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  annotations:
+    use-subpath: "true"
+  name: backend-worker-configmap
+data:
+  # Service-Type
+  SERVICE_TYPE: "worker"
+
+================================================================================
+
+Filename: templates/backend-worker/deployment.yaml
+Content:
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: backend-worker
+spec:
+  replicas: {{ .Values.backend.worker.replicas }}
+  selector:
+    matchLabels:
+      app: backend-worker
+  template:
+    metadata:
+      labels:
+        app: backend-worker
+    spec:
+      containers:
+        - name: backend-worker
+          image: "{{ .Values.backend.image }}"
+          envFrom:
+            - configMapRef:
+                name: backend-configmap
+            - configMapRef:
+                name: backend-worker-configmap
+      restartPolicy: Always
+      imagePullSecrets:
+        - name: harbor-secret
+
+================================================================================
+
+Filename: values.yaml
+Content:
+backend:
+  image: harbor.grigtech.io/alert.ventory/backend:0.1.1
+
+  api:
+    replicas: 1
+  worker:
+    replicas: 2
+
+  env:
+    SecretKey:
+      SECRET_KEY: "super_secret_key"
+
+    ZeptoMail:
+      SMTP_USERNAME: "emailapikey"
+      SMTP_PASSWORD: "PHtE6r0PFOq/i2B7oRYH5vDtHs/xYY5/rO41fwJPs4gTC6cLTk0ArdkpwWWyrk8vVvRDHfeZmtlo5+zK4u/TIWnkZDsdWGqyqK3sx/VYSPOZsbq6x00ZtFwYcEXcU4Xrcd9q0y3Vv9rfNA=="
+      SMTP_PORT: "587"
+      SMTP_HOST: "smtp.zeptomail.in"
+
+    ZohoOAuth:
+      ZOHO_CLIENT_ID: "1000.6WIAMOO7B4UAPDMN52080RI5KZ1T4U"
+      ZOHO_CLIENT_SECRET: "ae3095190b3df30d1533d1cdc32a5ad42503cc4d9c"
+      ZOHO_REDIRECT_URI: "http://localhost:5173/callback"
+      ZOHO_TOKEN_URL: "https://accounts.zoho.in/oauth/v2/token"
+
+    Supabase:
+      DB_USER: "postgres"
+      DB_PASSWORD: "your-super-secret-and-long-postgres-password"
+      DB_HOST: "pg.supabase.grigtech.io"
+      DB_PORT: "6543"
+      DB_NAME: "postgres"
+      TENANT_ID: "your-tenant-id"
+      ANON_KEY: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyAgCiAgICAicm9sZSI6ICJhbm9uIiwKICAgICJpc3MiOiAic3VwYWJhc2UtZGVtbyIsCiAgICAiaWF0IjogMTY0MTc2OTIwMCwKICAgICJleHAiOiAxNzk5NTM1NjAwCn0.dc_X5iR_VP_qT0zsiyj_I_OZ2T9FtRU2BBNWN8Bu4GE"
+      SERVICE_ROLE_KEY: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyAgCiAgICAicm9sZSI6ICJzZXJ2aWNlX3JvbGUiLAogICAgImlzcyI6ICJzdXBhYmFzZS1kZW1vIiwKICAgICJpYXQiOiAxNjQxNzY5MjAwLAogICAgImV4cCI6IDE3OTk1MzU2MDAKfQ.DaYlNEoUrrEn2Ig7tqibS-PHK5vgusbcbo7X36XVt4Q"
+
+    Temporal:
+      TEMPORAL_HOST: "temporal.grigtech.io"
+      TEMPORAL_PORT: "443"
+      EMAIL_FROM: "noreply@ventory.in"
+
+================================================================================

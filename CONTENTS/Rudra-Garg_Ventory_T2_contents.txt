@@ -1,0 +1,1023 @@
+
+Filename: .gitignore
+Content:
+### Flask template
+instance/*
+!instance/.gitignore
+.webassets-cache
+.env
+
+### Python template
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# C extensions
+*.so
+
+# Distribution / packaging
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# PyInstaller
+#  Usually these files are written by a python script from a template
+#  before PyInstaller builds the exe, so as to inject date/other infos into it.
+*.manifest
+*.spec
+
+# Installer logs
+pip-log.txt
+pip-delete-this-directory.txt
+
+# Unit test / coverage reports
+htmlcov/
+.tox/
+.nox/
+.coverage
+.coverage.*
+.cache
+nosetests.xml
+coverage.xml
+*.cover
+*.py,cover
+.hypothesis/
+.pytest_cache/
+cover/
+
+# Translations
+*.mo
+*.pot
+
+# Django stuff:
+*.log
+local_settings.py
+db.sqlite3
+db.sqlite3-journal
+
+# Flask stuff:
+instance/
+.webassets-cache
+
+# Scrapy stuff:
+.scrapy
+
+# Sphinx documentation
+docs/_build/
+
+# PyBuilder
+.pybuilder/
+target/
+
+# Jupyter Notebook
+.ipynb_checkpoints
+
+# IPython
+profile_default/
+ipython_config.py
+
+# pyenv
+#   For a library or package, you might want to ignore these files since the code is
+#   intended to run in multiple environments; otherwise, check them in:
+# .python-version
+
+# pipenv
+#   According to pypa/pipenv#598, it is recommended to include Pipfile.lock in version control.
+#   However, in case of collaboration, if having platform-specific dependencies or dependencies
+#   having no cross-platform support, pipenv may install dependencies that don't work, or not
+#   install all needed dependencies.
+#Pipfile.lock
+
+# poetry
+#   Similar to Pipfile.lock, it is generally recommended to include poetry.lock in version control.
+#   This is especially recommended for binary packages to ensure reproducibility, and is more
+#   commonly ignored for libraries.
+#   https://python-poetry.org/docs/basic-usage/#commit-your-poetrylock-file-to-version-control
+#poetry.lock
+
+# pdm
+#   Similar to Pipfile.lock, it is generally recommended to include pdm.lock in version control.
+#pdm.lock
+#   pdm stores project-wide configurations in .pdm.toml, but it is recommended to not include it
+#   in version control.
+#   https://pdm.fming.dev/#use-with-ide
+.pdm.toml
+
+# PEP 582; used by e.g. github.com/David-OConnor/pyflow and github.com/pdm-project/pdm
+__pypackages__/
+
+# Celery stuff
+celerybeat-schedule
+celerybeat.pid
+
+# SageMath parsed files
+*.sage.py
+
+# Environments
+.env
+.venv
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+
+# Spyder project settings
+.spyderproject
+.spyproject
+
+# Rope project settings
+.ropeproject
+
+# mkdocs documentation
+/site
+
+# mypy
+.mypy_cache/
+.dmypy.json
+dmypy.json
+
+# Pyre type checker
+.pyre/
+
+# pytype static type analyzer
+.pytype/
+
+# Cython debug symbols
+cython_debug/
+
+# PyCharm
+#  JetBrains specific template is maintained in a separate JetBrains.gitignore that can
+#  be found at https://github.com/github/gitignore/blob/main/Global/JetBrains.gitignore
+#  and can be added to the global gitignore or merged into this file.  For a more nuclear
+#  option (not recommended) you can uncomment the following to ignore the entire idea folder.
+.idea/
+
+temporary
+output_pdfs
+
+================================================================================
+
+Filename: README.md
+Content:
+
+# Certificate Manager
+
+A dashboard for creating and searching certificates stored in Google Cloud Storage
+
+
+## Run Locally
+
+Clone the project
+
+```bash
+  git clone https://github.com/Rudra-Garg/Ventory_T2
+```
+
+Go to the project directory
+
+```bash
+  cd Ventory_T2
+```
+
+Install dependencies
+
+```bash
+  pip install requirements.txt
+```
+
+Start the server
+
+```bash
+  python app.py
+```
+
+Note: You will need to update firebase_config.py with your own firebase project configuration.
+
+
+
+================================================================================
+
+Filename: app.py
+Content:
+from flask import Flask, request, jsonify, render_template
+import cv2
+import uuid
+from PIL import Image
+import img2pdf
+from google.cloud.firestore_v1 import FieldFilter
+
+from firebase_config import bucket, db
+
+app = Flask(__name__)
+
+AUTH_KEY = uuid.uuid4().hex
+print("Auth Key:", AUTH_KEY)
+
+
+@app.route('/auth', methods=['POST'])
+def authenticate():
+    data = request.get_json()
+    if data and 'auth_key' in data:
+        if data['auth_key'] == AUTH_KEY:
+            return jsonify({'success': True, 'message': 'Authentication successful'}), 200
+        else:
+            return jsonify({'success': False, 'message': 'Invalid authentication key'}), 401
+    else:
+        return jsonify({'success': False, 'message': 'Auth key not provided'}), 400
+
+
+@app.route('/admin')
+def home_page():  # home page
+    return render_template('index.html')
+
+
+def add_text_to_certificate(candidate_name, candidate_id):
+    # define certificate image path
+    certificate_image_path = 'blank_certificate.png'
+
+    # define y axis
+    y = 725
+
+    # define font related parameters
+    font_scale = 4  # font size
+    font = cv2.FONT_HERSHEY_SCRIPT_COMPLEX  # font style
+    thickness = 4  # font weight
+    color = (0, 0, 0)  # font color
+
+    # Load the image
+    image = cv2.imread(certificate_image_path)
+
+    # Get the width and height of the image
+    (image_height, image_width) = image.shape[:2]
+
+    # Get the text size
+    text_size = cv2.getTextSize(candidate_name, font, font_scale, thickness)[0]
+
+    # Calculate the x coordinate to center the text
+    text_x = (image_width - text_size[0]) // 2
+
+    # Put the text on the image
+    cv2.putText(image, candidate_name, (text_x, y), font, font_scale, color, thickness)
+
+    # Store the image in the temporary directory
+    png_output_path = f"temporary/{candidate_id}.png"
+    cv2.imwrite(png_output_path, image)
+
+    # convert the cv2 image to pdf and save it in /output_pdf2 directory
+    # storing pdf path
+    pdf_path = f"output_pdfs/{candidate_id}.pdf"
+
+    # opening image
+    image = Image.open(png_output_path)
+
+    # converting into chunks using img2pdf
+    pdf_bytes = img2pdf.convert(image.filename)
+
+    # opening or creating pdf file
+    file = open(pdf_path, "wb")
+
+    # writing pdf files with chunks
+    file.write(pdf_bytes)
+
+    # closing image file
+    image.close()
+
+    # closing pdf file
+    file.close()
+
+
+@app.route('/create/', methods=['GET'])
+def create():
+    # extract candidate_name and candidate_email from query
+    candidate_name = request.args.get('candidate_name')[:20]
+    candidate_email = request.args.get('candidate_email')
+    auth_key = request.args.get('auth_key')
+
+    if auth_key != AUTH_KEY:
+        return jsonify({'success': False, 'message': 'Invalid authentication key'}), 401
+    # generate a unique id for the candidate
+    candidate_id = uuid.uuid4().hex
+
+    # add text to the certificate
+    add_text_to_certificate(candidate_name, candidate_id)
+
+    # Path to the locally generated PDF file
+    pdf_path = f"output_pdfs/{candidate_id}.pdf"
+
+    # Create a blob object for the PDF file
+    blob = bucket.blob(f"certificates/{candidate_id}.pdf")
+
+    # Upload the PDF file to Cloud Storage
+    blob.upload_from_filename(pdf_path)
+
+    # Make the blob publicly readable
+    blob.make_public()
+
+    # Get the public URL of the uploaded PDF
+    public_url = blob.public_url
+    local_url = "http://127.0.0.1:5000/certificate/" + candidate_id
+    # Create a new document in the 'candidates' collection
+    details = {
+        'candidate_name': candidate_name,
+        'candidate_email': candidate_email,
+        'certificate_url': public_url,
+        'local_url': local_url
+    }
+    doc_ref = db.collection('candidates').document(candidate_id)
+    doc_ref.set(details)
+
+    # return the details of the candidate
+    return jsonify(details)
+
+
+@app.route('/certificate/<candidate_id>/', methods=['GET'])
+def get_certificate(candidate_id):
+    doc_ref = db.collection('candidates').document(candidate_id)
+    doc = doc_ref.get()
+    if doc.exists:
+        doc_data = doc.to_dict()
+        return render_template('certificate.html', certificate_url=doc_data['certificate_url'],
+                               certificate_id=candidate_id, candidate_name=doc_data['candidate_name'],
+                               candidate_email=doc_data['candidate_email'])
+    else:
+        return 'Certificate not found', 404
+
+
+@app.route('/search', methods=['GET'])
+def search_certificate():
+    search_type = request.args.get('type')
+    query = request.args.get('query')
+    auth_key = request.args.get('auth_key')
+    if auth_key != AUTH_KEY:
+        return jsonify({'success': False, 'message': 'Invalid authentication key'}), 401
+    if not search_type or not query:
+        return jsonify({'error': 'Missing search type or query'}), 400
+
+    collection_ref = db.collection('candidates')
+
+    if search_type == 'id':
+        doc = collection_ref.document(query).get()
+        if doc.exists:
+            return jsonify([doc.to_dict()])
+        return jsonify([])
+
+    elif search_type in ['name', 'email']:
+        field = f'candidate_{search_type}'
+        docs = collection_ref.where(filter=FieldFilter(field, ">=", query)).where(
+            filter=FieldFilter(field, "<=", query + '\uf8ff')).limit(10).stream()
+
+        results = [doc.to_dict() for doc in docs]
+        return jsonify(results)
+
+    else:
+        return jsonify({'error': 'Invalid search type'}), 400
+
+
+if __name__ == '__main__':
+    app.run(debug=False)
+
+
+================================================================================
+
+Filename: blank_certificate.png
+Content:
+[Binary file - cannot display content]
+
+
+Filename: firebase_config.py
+Content:
+from firebase_admin import credentials, firestore, storage, initialize_app
+
+cred = (credentials.
+        Certificate("C:/Users/Rudra Garg/Downloads/Ventory/ventory-t2-firebase-adminsdk-qxd2q-164cb8f375.json"))
+initialize_app(cred, {
+    'projectId': 'ventory-t2',
+    'storageBucket': 'ventory-t2.appspot.com',
+    'database': '(default)'
+
+})
+
+db = firestore.client()
+bucket = storage.bucket()
+
+
+================================================================================
+
+Filename: requirements.txt
+Content:
+opencv-python~=4.10.0.82
+img2pdf~=0.5.1
+Flask~=3.0.3
+pillow~=10.3.0
+firebase-admin
+
+================================================================================
+
+Filename: static/css/certificate.css
+Content:
+html, body {
+    height: 100%;
+    margin: 0;
+    padding: 0;
+}
+
+body {
+    font-family: "Segoe UI", sans-serif;
+    min-height: 100vh;
+    background: linear-gradient(135deg, rgba(79, 228, 141, 0.8), rgba(66, 96, 169, 0.8));
+    backdrop-filter: blur(10px);
+    box-sizing: border-box;
+    display: flex;
+    flex-direction: column;
+    padding: 20px;
+}
+
+.container {
+    background-color: #fff;
+    padding: 20px;
+    border-radius: 20px;
+    box-shadow: 0 0 15px rgba(0, 0, 0, 0.1);
+    width: calc(100% - 40px);
+    max-width: 1500px;
+    margin: auto;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    flex-grow: 1;
+}
+.details {
+    width: 100%;
+    padding-bottom: 20px;
+    border-bottom: 1px solid #ddd;
+    margin-bottom: 20px;
+}
+
+.details h1 {
+    margin-bottom: 20px;
+    color: #333;
+}
+
+.details p {
+    margin-bottom: 10px;
+    font-size: 16px;
+    color: #555;
+}
+
+.pdf-viewer {
+    width: 100%;
+}
+
+iframe {
+    width: 100%;
+    height: 75vh;
+    border: none;
+    border-radius: 10px;
+}
+
+.logo {
+    width: 150px;
+    height: auto;
+    margin-bottom: 20px;
+}
+
+@media (min-width: 768px) {
+    .container {
+        flex-direction: row;
+        align-items: stretch;
+    }
+
+    .details {
+        width: 25%;
+        padding-right: 20px;
+        border-right: 1px solid #ddd;
+        border-bottom: none;
+        margin-bottom: 0;
+    }
+
+    .pdf-viewer {
+        width: 75%;
+        padding-left: 20px;
+        display: flex;
+        flex-direction: column;
+    }
+
+    iframe {
+        flex-grow: 1;
+    }
+}
+
+@media (max-width: 480px) {
+    body {
+        padding: 10px;
+    }
+
+    .container {
+        padding: 15px;
+    }
+
+    .details h1 {
+        font-size: 24px;
+    }
+
+    .details p {
+        font-size: 14px;
+    }
+
+    .logo {
+        width: 120px;
+    }
+}
+
+================================================================================
+
+Filename: static/css/index.css
+Content:
+body {
+    font-family: "Segoe UI", sans-serif;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    min-height: 100vh;
+    background: linear-gradient(135deg, rgba(79, 228, 141, 0.8), rgba(66, 96, 169, 0.8));
+    backdrop-filter: blur(10px);
+    box-sizing: border-box;
+    flex-direction: column;
+    overflow-x: hidden;
+
+}
+
+.logo-container {
+    position: fixed;
+    top: 20px;
+    left: 20px;
+    z-index: 1;
+}
+
+.logo {
+    width: 200px;
+    height: auto;
+}
+
+.container {
+    background-color: #fff;
+    padding: 40px;
+    border-radius: 20px;
+    box-shadow: 0 0 15px rgba(0, 0, 0, 0.1);
+    max-width: 1000px;
+    width: calc(100% - 80px);
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: space-between;
+    box-sizing: border-box;
+    align-items: center;
+    margin: 150px auto 20px;
+}
+.auth-container {
+    background-color: #fff;
+    padding: 40px;
+    border-radius: 20px;
+    box-shadow: 0 0 15px rgba(0, 0, 0, 0.1);
+    max-width: 400px;
+    width: calc(100% - 80px);
+    margin: 150px auto 20px;
+    box-sizing: border-box;
+}
+
+.form-container {
+    width: calc(50% - 20px);
+    margin-bottom: 20px;
+}
+
+h1, h2 {
+    margin-bottom: 25px;
+    color: #333;
+    text-align: center;
+}
+
+.form-group {
+    margin-bottom: 20px;
+}
+
+.form-group label {
+    display: block;
+    margin-bottom: 8px;
+    font-weight: bold;
+    color: #555;
+    transition: color 0.3s ease;
+}
+
+.form-group label:hover {
+    color: #4CAF50;
+}
+
+.form-group input, .form-group select {
+    width: 100%;
+    padding: 10px;
+    box-sizing: border-box;
+    border: 1px solid #ccc;
+    border-radius: 4px;
+    font-size: 16px;
+}
+
+.btn {
+    background-color: #4CAF50;
+    color: white;
+    padding: 12px 20px;
+    border: none;
+    border-radius: 10px;
+    cursor: pointer;
+    font-size: 16px;
+    transition: background-color 0.3s ease, box-shadow 0.3s ease;
+    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    position: relative;
+    min-width: 150px;
+    min-height: 44px;
+}
+
+.btn .loading-icon {
+    font-size: 16px;
+    margin-left: 10px;
+}
+
+.btn:hover {
+    background-color: #45a049;
+}
+
+.hidden {
+    display: none;
+}
+
+.loading-icon {
+    position: absolute;
+    right: 40%;
+    transform: translate(-50%, -50%);
+
+    width: 20px;
+    height: 20px;
+    border: 2px solid #f3f3f3;
+    border-top: 2px solid #4CAF50;
+    border-radius: 50%;
+    animation: spin 1s linear infinite;
+    margin-left: 10px;
+}
+
+.loading-icon.hidden {
+    display: none;
+}
+
+@keyframes spin {
+    0% {
+        transform: rotate(0deg);
+    }
+    100% {
+        transform: rotate(360deg);
+    }
+}
+
+#message, #searchMessage, #createMessage, #searchResults {
+    margin-top: 20px;
+}
+
+#message p, #searchMessage p, #createMessage p {
+    font-size: 16px;
+}
+
+#certificateLink, #searchCertificateLink {
+    color: #4CAF50;
+    text-decoration: none;
+    font-weight: bold;
+}
+
+#certificateLink:hover, #searchCertificateLink:hover {
+    text-decoration: underline;
+}
+
+#certificateList {
+    list-style-type: none;
+    padding: 0;
+}
+
+#certificateList li {
+    margin-bottom: 10px;
+}
+
+#certificateList a {
+    color: #4CAF50;
+    text-decoration: none;
+}
+
+#certificateList a:hover {
+    text-decoration: underline;
+}
+
+@media (max-width: 768px) {
+    .container .auth-container{
+        flex-direction: column;
+        padding: 20px;
+        margin-top: 100px;
+        margin-bottom: 20px;
+    }
+
+    .form-container {
+        width: 100%;
+        margin-bottom: 20px;
+    }
+
+    .logo {
+        width: 150px;
+    }
+}
+
+@media (max-width: 480px) {
+    .form-group input, .form-group select {
+        font-size: 14px;
+        padding: 8px;
+    }
+
+    .btn {
+        font-size: 14px;
+        padding: 10px 16px;
+    }
+
+    h1, h2 {
+        font-size: 20px;
+    }
+
+    .container .auth-container {
+        padding: 10px;
+        margin-top: 75px;
+        margin-bottom: 20px;
+    }
+
+    .logo {
+        width: 120px;
+    }
+}
+
+
+================================================================================
+
+Filename: static/logo.png
+Content:
+[Binary file - cannot display content]
+
+
+Filename: static/script.js
+Content:
+document.addEventListener("DOMContentLoaded", function () {
+    const authForm = document.getElementById("authForm");
+    const authContainer = document.getElementById("authContainer");
+    const mainContainer = document.getElementById("mainContainer");
+    const certificateForm = document.getElementById("certificateForm");
+    const searchForm = document.getElementById("searchForm");
+    let authKey = document.getElementById("authKey").value;
+    function toggleLoading(button, isLoading) {
+        const btnText = button.querySelector(".btn-text");
+        const loadingIcon = button.querySelector(".loading-icon");
+
+        if (isLoading) {
+            btnText.style.display = "none";
+            loadingIcon.classList.remove("hidden");
+            button.disabled = true;
+        } else {
+            btnText.style.display = "inline-block";
+            loadingIcon.classList.add("hidden");
+            button.disabled = false;
+        }
+    }
+
+    authForm.addEventListener("submit", function (event) {
+        event.preventDefault();
+        authKey = document.getElementById("authKey").value;
+        const submitButton = authForm.querySelector("button[type='submit']");
+        toggleLoading(submitButton, true);
+
+        fetch('/auth', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({ auth_key: authKey }),
+        })
+        .then(response => response.json())
+        .then(data => {
+            toggleLoading(submitButton, false);
+            if (data.success) {
+                authContainer.classList.add("hidden");
+                mainContainer.classList.remove("hidden");
+            } else {
+                alert(data.message);
+            }
+        })
+        .catch((error) => {
+            toggleLoading(submitButton, false);
+            console.error('Error:', error);
+            alert("An error occurred during authentication.");
+        });
+    });
+
+    certificateForm.addEventListener("submit", function (event) {
+        event.preventDefault();
+        const submitButton = certificateForm.querySelector("button[type='submit']");
+        toggleLoading(submitButton, true);
+
+        const name = document.getElementById('name').value;
+        const email = document.getElementById('email').value;
+        fetch(`/create?candidate_name=${encodeURIComponent(name)}&candidate_email=${encodeURIComponent(email)}&auth_key=${authKey}`)
+            .then(response => response.json())
+            .then(data => {
+                toggleLoading(submitButton, false);
+                if (data.certificate_url) {
+                    const createMessageDiv = document.getElementById('createMessage');
+                    const certificateLink = document.getElementById('certificateLink');
+                    certificateLink.href = data.local_url;
+                    createMessageDiv.classList.remove('hidden');
+                } else {
+                    console.error('Invalid response:', data);
+                    alert("An error occurred while creating the certificate.");
+                }
+            })
+            .catch(error => {
+                toggleLoading(submitButton, false);
+                console.error('Error:', error);
+                alert("An error occurred while creating the certificate.");
+            });
+    });
+
+    searchForm.addEventListener("submit", function (event) {
+        event.preventDefault();
+        const submitButton = searchForm.querySelector("button[type='submit']");
+        toggleLoading(submitButton, true);
+
+        const searchType = document.getElementById('searchType').value;
+        const searchInput = document.getElementById('searchInput').value;
+        const searchResultsDiv = document.getElementById('searchResults');
+        const certificateList = document.getElementById('certificateList');
+
+        fetch(`/search?type=${encodeURIComponent(searchType)}&query=${encodeURIComponent(searchInput)}&auth_key=${authKey}`)
+            .then(response => response.json())
+            .then(data => {
+                toggleLoading(submitButton, false);
+                certificateList.innerHTML = '';
+                if (data.length > 0) {
+                    data.forEach(certificate => {
+                        const listItem = document.createElement('li');
+                        const certificateLink = document.createElement('a');
+                        certificateLink.href = certificate.local_url;
+                        certificateLink.target = '_blank';
+                        certificateLink.textContent = `${certificate.candidate_name} - ${certificate.candidate_email}`;
+                        listItem.appendChild(certificateLink);
+                        certificateList.appendChild(listItem);
+                    });
+                    searchResultsDiv.classList.remove('hidden');
+                } else {
+                    const noResultsMessage = document.createElement('p');
+                    noResultsMessage.textContent = 'No certificates found.';
+                    certificateList.appendChild(noResultsMessage);
+                    searchResultsDiv.classList.remove('hidden');
+                }
+            })
+            .catch(error => {
+                toggleLoading(submitButton, false);
+                console.error('Error:', error);
+                alert("An error occurred while searching for certificates.");
+            });
+    });
+});
+
+================================================================================
+
+Filename: templates/certificate.html
+Content:
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Certificate</title>
+    <link rel="stylesheet" href="/static/css/certificate.css">
+    <link rel="icon" type="image/svg+xml" href="https://ventory.in/icon.svg">
+</head>
+<body>
+    <div class="container">
+        <div class="details">
+            <img src="/static/logo.png" alt="Logo" class="logo">
+            <h1>Certificate Details</h1>
+            <p><strong>Candidate Name:</strong> {{ candidate_name }}</p>
+            <p><strong>Candidate Email:</strong> {{ candidate_email }}</p>
+            <p><strong>Certificate ID:</strong> {{ certificate_id }}</p>
+        </div>
+        <div class="pdf-viewer">
+            <iframe src="{{ certificate_url }}"></iframe>
+        </div>
+    </div>
+</body>
+</html>
+
+================================================================================
+
+Filename: templates/index.html
+Content:
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Create Certificate</title>
+    <link rel="stylesheet" href="/static/css/index.css">
+    <link rel="icon" type="image/svg+xml" href="https://ventory.in/icon.svg">
+</head>
+<body>
+<div class="logo-container">
+    <img src="/static/logo.png" alt="Logo" class="logo">
+</div>
+<div id="authContainer" class="auth-container">
+    <h2>Enter Authentication Key</h2>
+    <form id="authForm">
+        <div class="form-group">
+            <label for="authKey">Auth Key:</label>
+            <input type="password" id="authKey" name="authKey" required>
+        </div>
+        <button type="submit" class="btn">
+            <span class="btn-text">Authenticate</span>
+            <span class="loading-icon hidden"></span>
+        </button>
+    </form>
+</div>
+
+<div id="mainContainer" class="container hidden">
+    <div class="form-container">
+        <h1>Create Certificate</h1>
+        <form id="certificateForm">
+            <div class="form-group">
+                <label for="name">Name:</label>
+                <input type="text" id="name" name="name" required>
+            </div>
+            <div class="form-group">
+                <label for="email">Email:</label>
+                <input type="email" id="email" name="email" required>
+            </div>
+            <button type="submit" class="btn">
+                <span class="btn-text">Create Certificate</span>
+                <span class="loading-icon hidden"></span>
+            </button>
+        </form>
+        <div id="createMessage" class="hidden">
+            <p>Certificate created! <a id="certificateLink" href="" target="_blank">Click here to view it</a></p>
+        </div>
+    </div>
+
+    <div class="form-container">
+        <h1>Search Certificate</h1>
+        <form id="searchForm">
+            <div class="form-group">
+                <label for="searchType">Search By:</label>
+                <select id="searchType" name="searchType">
+                    <option value="name">Name</option>
+                    <option value="email">Email</option>
+                    <option value="id">Certificate ID</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label for="searchInput">Search:</label>
+                <input type="text" id="searchInput" name="searchInput" required>
+            </div>
+            <button type="submit" class="btn">
+                <span class="btn-text">Search</span>
+                <span class="loading-icon hidden"></span>
+            </button>
+        </form>
+        <div id="searchResults" class="hidden">
+            <h3>Search Results:</h3>
+            <ul id="certificateList"></ul>
+        </div>
+    </div>
+</div>
+<script src="/static/script.js"></script>
+</body>
+</html>
+
+
+================================================================================
